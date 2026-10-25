@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ChefHat,
   Clock,
@@ -14,10 +15,12 @@ import {
   X,
   Filter,
   Check,
+  ArrowLeft,
+  Shield,
 } from 'lucide-react';
 import OrderCard from '../../components/admin/OrderCard';
+import { useOrders } from '../../context/OrderContext';
 import {
-  INITIAL_MOCK_ORDERS,
   STATUS_BADGE_STYLES,
   STATUS_TRANSITIONS,
 } from '../../mocks/mockOrders';
@@ -40,9 +43,11 @@ export default function KitchenDashboardPage({
   orders: externalOrdersProp,
   onUpdateStatus: externalUpdateStatus,
 }) {
-  // 1. Orders State: Default to internal mock orders if external prop not passed
-  const [localOrders, setLocalOrders] = useState(INITIAL_MOCK_ORDERS);
-  const orders = externalOrdersProp || localOrders;
+  const navigate = useNavigate();
+  const { orders: contextOrders, updateOrderStatus, resetOrders } = useOrders();
+
+  // 1. Orders State: Prefer external prop, then OrderContext
+  const orders = externalOrdersProp || contextOrders;
 
   // 2. Filter & View Controls State
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('Active'); // 'Active' | 'All' | 'Pending' | 'Preparing' | 'Ready' | 'Served'
@@ -93,16 +98,10 @@ export default function KitchenDashboardPage({
       return;
     }
 
-    // Update state immediately (if using local state)
-    if (!externalOrdersProp) {
-      setLocalOrders((prevOrders) =>
-        prevOrders.map((order) =>
-          order.id === orderId ? { ...order, status: nextStatus } : order
-        )
-      );
+    // Update status in shared OrderContext or external prop handler
+    if (typeof updateOrderStatus === 'function') {
+      updateOrderStatus(orderId, nextStatus);
     }
-
-    // Call external handler if provided (for future integrator / CartContext)
     if (typeof externalUpdateStatus === 'function') {
       externalUpdateStatus(orderId, nextStatus);
     }
@@ -116,7 +115,9 @@ export default function KitchenDashboardPage({
 
   // 7. Reset Mock Data (Convenient for evaluators/testers)
   const handleResetData = () => {
-    setLocalOrders(INITIAL_MOCK_ORDERS);
+    if (typeof resetOrders === 'function') {
+      resetOrders();
+    }
     setSelectedStatusFilter('Active');
     setSearchQuery('');
     showToast('Mock orders reloaded to initial state', 'info');
@@ -230,6 +231,38 @@ export default function KitchenDashboardPage({
               >
                 <RotateCcw className="w-3.5 h-3.5 text-[#E5B86A]" />
                 <span className="hidden sm:inline">Reset Demo</span>
+              </button>
+
+              {/* View Customer Menu Link */}
+              <button
+                type="button"
+                onClick={() => navigate('/menu')}
+                title="Switch to Customer Menu"
+                className="
+                  inline-flex items-center gap-1.5 px-3 py-2 rounded-xl
+                  bg-[#24543A] hover:bg-[#326B4B] border border-[#326B4B]
+                  text-xs font-semibold text-[#F5F0E6]
+                  transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                "
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Customer Menu</span>
+              </button>
+
+              {/* Switch to Admin Link */}
+              <button
+                type="button"
+                onClick={() => navigate('/admin/dashboard')}
+                title="Switch to Admin Dashboard"
+                className="
+                  inline-flex items-center gap-1.5 px-3 py-2 rounded-xl
+                  bg-[#222825] border border-[#38443C] hover:border-[#82B895]
+                  text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0]
+                  transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                "
+              >
+                <Shield className="w-3.5 h-3.5 text-[#82B895]" />
+                <span className="hidden sm:inline">Admin</span>
               </button>
             </div>
           </div>

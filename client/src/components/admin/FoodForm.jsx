@@ -6,7 +6,7 @@
  * Used by both AddFoodPage and inline editing in FoodTable.
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, AlertCircle, Save, UtensilsCrossed } from 'lucide-react';
 import { CATEGORIES } from '../../mocks/mockData';
 
@@ -44,13 +44,6 @@ export default function FoodForm({
   const [form, setForm] = useState({ ...EMPTY_FORM, ...(initialData || {}) });
   const [errors, setErrors] = useState({});
   const [imagePreviewError, setImagePreviewError] = useState(false);
-
-  // Reset when initialData changes (e.g. modal open/close)
-  useEffect(() => {
-    setForm({ ...EMPTY_FORM, ...(initialData || {}) });
-    setErrors({});
-    setImagePreviewError(false);
-  }, [initialData]);
 
   function validate() {
     const errs = {};

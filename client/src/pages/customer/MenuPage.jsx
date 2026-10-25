@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ShoppingBag,
   Search,
@@ -11,9 +12,12 @@ import {
   Leaf,
   RotateCcw,
   CheckCircle2,
+  ChefHat,
+  Shield,
 } from 'lucide-react';
 import CategoryTabs from '../../components/customer/CategoryTabs';
 import MenuItemCard from '../../components/customer/MenuItemCard';
+import { useCart } from '../../context/CartContext';
 import {
   MENU_ITEMS,
   CATEGORIES,
@@ -43,6 +47,9 @@ function getTableNumberFromUrl() {
  * @param {Function} [props.onAddToCart] - Optional external callback from shared CartContext (for Member 2)
  */
 export default function MenuPage({ onAddToCart: externalAddToCart }) {
+  const navigate = useNavigate();
+  const { addToCart, cartCount } = useCart();
+
   // 1. Table Number State (from URL ?table=X or default)
   const [tableNumber, setTableNumber] = useState(getTableNumberFromUrl);
 
@@ -51,10 +58,8 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [vegOnly, setVegOnly] = useState(false);
 
-  // 3. Local Cart State for Phase 1 (UI feedback & badge count)
-  const [localCart, setLocalCart] = useState({});
+  // 3. Local Feedback State
   const [toastMessage, setToastMessage] = useState(null);
-  const [isCartNoticeOpen, setIsCartNoticeOpen] = useState(false);
 
   // Listen for query changes if URL changes dynamically
   useEffect(() => {
@@ -65,10 +70,7 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
     return () => window.removeEventListener('popstate', handleLocationChange);
   }, []);
 
-  // Compute total items count in local cart
-  const totalCartCount = useMemo(() => {
-    return Object.values(localCart).reduce((sum, qty) => sum + qty, 0);
-  }, [localCart]);
+  const totalCartCount = cartCount;
 
   // Compute dynamic category counts from the full menu (never hardcoded, never inaccurate)
   const categoryCounts = useMemo(() => {
@@ -105,11 +107,10 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
 
   // Handle Add to Cart action
   const handleAddToCart = (item) => {
-    // 1. Update local cart quantity for Phase 1 demonstration
-    setLocalCart((prev) => ({
-      ...prev,
-      [item.id]: (prev[item.id] || 0) + 1,
-    }));
+    // 1. Add to shared CartContext
+    if (typeof addToCart === 'function') {
+      addToCart(item);
+    }
 
     // 2. Show brief toast notification
     setToastMessage({
@@ -120,7 +121,7 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
       setToastMessage(null);
     }, 2500);
 
-    // 3. Forward to external callback if supplied by Member 2's CartContext
+    // 3. Forward to external callback if supplied
     if (typeof externalAddToCart === 'function') {
       externalAddToCart(item);
     }
@@ -166,11 +167,34 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
               </span>
             </div>
 
-            {/* Right Action: Cart Button */}
-            <div className="flex items-center gap-3">
+            {/* Right Action: Cart & Quick Switchers */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Kitchen KDS Link */}
               <button
                 type="button"
-                onClick={() => setIsCartNoticeOpen(true)}
+                onClick={() => navigate('/kitchen')}
+                title="Open Kitchen Display Station"
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#222825] border border-[#38443C] hover:border-[#82B895] text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0] transition-colors cursor-pointer"
+              >
+                <ChefHat className="w-4 h-4 text-[#82B895]" />
+                <span>Kitchen</span>
+              </button>
+
+              {/* Admin Portal Link */}
+              <button
+                type="button"
+                onClick={() => navigate('/admin/dashboard')}
+                title="Open Admin Dashboard"
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#222825] border border-[#38443C] hover:border-[#82B895] text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0] transition-colors cursor-pointer"
+              >
+                <Shield className="w-4 h-4 text-[#E5B86A]" />
+                <span>Admin</span>
+              </button>
+
+              {/* Cart Button */}
+              <button
+                type="button"
+                onClick={() => navigate(`/cart?table=${tableNumber}`)}
                 aria-label={`View cart with ${totalCartCount} items`}
                 className="
                   relative flex items-center gap-2 px-3.5 py-2 md:px-4 md:py-2.5 rounded-xl
@@ -180,7 +204,7 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
                 "
               >
                 <ShoppingBag className="w-5 h-5 text-[#E5B86A]" />
-                <span className="hidden md:inline text-xs font-semibold">
+                <span className="hidden sm:inline text-xs font-semibold">
                   Cart
                 </span>
                 {totalCartCount > 0 ? (
@@ -198,16 +222,28 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
         </div>
 
         {/* Mobile-Only Table Strip */}
-        <div className="sm:hidden px-4 py-1.5 bg-[#222825]/80 border-t border-[#38443C] flex items-center justify-between text-xs">
+        <div className="sm:hidden px-4 py-2 bg-[#222825]/90 border-t border-[#38443C] flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
             <MapPin className="w-3.5 h-3.5 text-[#E5B86A]" />
             <span className="text-[#A8B3AA]">Ordering for</span>
             <span className="font-bold text-[#F5F5F0]">Table {tableNumber}</span>
           </div>
-          <span className="text-[10px] text-[#82B895] font-medium flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#82B895] animate-pulse" />
-            Live Menu
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate('/kitchen')}
+              className="text-[#82B895] font-semibold text-[11px] underline"
+            >
+              Kitchen
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/admin/dashboard')}
+              className="text-[#E5B86A] font-semibold text-[11px] underline"
+            >
+              Admin
+            </button>
+          </div>
         </div>
       </header>
 
@@ -490,85 +526,6 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
             <p className="text-[11px] text-[#A8B3AA] leading-tight">
               {toastMessage.message}
             </p>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          CART UI ENTRY POINT NOTICE MODAL
-          Informs reviewer & customer that Cart is Member 2's scope
-      ───────────────────────────────────────────────────────────── */}
-      {isCartNoticeOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
-        >
-          <div className="bg-[#222825] border border-[#38443C] rounded-2xl max-w-md w-full p-6 text-left shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-xl bg-[#24543A] flex items-center justify-center text-[#E5B86A]">
-                  <ShoppingBag className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-base font-bold text-[#F5F5F0]">
-                    Your Order Summary
-                  </h4>
-                  <span className="text-[11px] text-[#A8B3AA]">
-                    Table #{tableNumber}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsCartNoticeOpen(false)}
-                className="text-[#A8B3AA] hover:text-[#F5F5F0] p-1 rounded-lg hover:bg-[#171A19] cursor-pointer"
-                aria-label="Close dialog"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 mb-5">
-              <div className="bg-[#171A19] border border-[#38443C] rounded-xl p-3.5">
-                <div className="flex justify-between items-center text-xs mb-1">
-                  <span className="text-[#A8B3AA]">Selected Items:</span>
-                  <span className="font-bold text-[#F5F5F0]">
-                    {totalCartCount} item(s)
-                  </span>
-                </div>
-                <div className="text-[11px] text-[#82B895] flex items-center gap-1.5 mt-2">
-                  <span className="w-2 h-2 rounded-full bg-[#82B895]" />
-                  <span>Phase 1 Frontend State Tracking Active</span>
-                </div>
-              </div>
-
-              <div className="text-xs text-[#A8B3AA] leading-relaxed p-3 bg-[#171A19]/50 rounded-xl border border-[#38443C]/50">
-                <p className="font-semibold text-[#E5B86A] mb-1">
-                  Team Integration Notice:
-                </p>
-                <p>
-                  Full Cart & Checkout flows are assigned to{' '}
-                  <strong className="text-[#F5F5F0]">Member 2</strong>. In Phase
-                  2, this button will route to{' '}
-                  <code className="text-[#82B895]">/cart</code> or invoke
-                  Member 2's Cart Drawer using the shared{' '}
-                  <code className="text-[#82B895]">CartContext</code>.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsCartNoticeOpen(false)}
-              className="
-                w-full py-2.5 rounded-xl bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6]
-                text-xs font-semibold border border-[#326B4B] transition-colors cursor-pointer
-                focus:outline-none focus:ring-2 focus:ring-[#82B895]
-              "
-            >
-              Continue Browsing Menu
-            </button>
           </div>
         </div>
       )}

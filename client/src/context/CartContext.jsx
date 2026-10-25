@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 /**
  * CartContext — ServeSync Member 2
  * Global cart state for the customer ordering flow.
