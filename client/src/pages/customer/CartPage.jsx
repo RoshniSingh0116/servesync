@@ -4,6 +4,7 @@
  * per-item subtotals, order totals, and navigation to checkout.
  */
 
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ShoppingBag,
@@ -45,7 +46,7 @@ function VegDot({ isVeg }) {
 /* ─── Single cart row ────────────────────────────────────── */
 function CartRow({ item, onIncrease, onDecrease, onRemove }) {
   const lineTotal = item.price * item.quantity;
-  const [imgError, setImgError] = React.useState(false);
+  const [imgError, setImgError] = useState(false);
 
   return (
     <li className="flex gap-4 p-4 sm:p-5 bg-[#222825] border border-[#38443C] rounded-2xl hover:border-[#326B4B] transition-colors">
@@ -219,8 +220,6 @@ function EmptyCart({ onBrowse }) {
 }
 
 /* ─── Page ───────────────────────────────────────────────── */
-import React from 'react';
-
 export default function CartPage() {
   const navigate = useNavigate();
   const { search } = useLocation();

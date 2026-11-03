@@ -6,7 +6,6 @@
  * Shows a friendly fallback if the order is not found (e.g., on hard refresh).
  */
 
-import React from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   CheckCircle2,
@@ -14,6 +13,7 @@ import {
   Clock,
   ArrowLeft,
   Hash,
+  ChefHat,
 } from 'lucide-react';
 import { useOrders } from '../../context/OrderContext';
 
@@ -51,23 +51,6 @@ function StatusBadge({ status }) {
     >
       <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
       {status}
-    </span>
-  );
-}
-
-/* ─── Veg dot ─────────────────────────────────────────────── */
-function VegDot({ isVeg }) {
-  return (
-    <span
-      className={`inline-flex items-center justify-center w-4 h-4 rounded-sm border flex-shrink-0 mt-0.5 ${
-        isVeg ? 'border-emerald-600' : 'border-rose-600'
-      } bg-[#1A1E1C]`}
-    >
-      <span
-        className={`w-2 h-2 rounded-full ${
-          isVeg ? 'bg-emerald-600' : 'bg-rose-600'
-        }`}
-      />
     </span>
   );
 }
@@ -240,8 +223,24 @@ export default function OrderConfirmationPage() {
               </p>
             </div>
 
-            {/* Back to menu */}
-            <div className="pb-4">
+            {/* Navigation CTAs */}
+            <div className="pb-4 space-y-3">
+              <button
+                id="view-in-kitchen-btn"
+                type="button"
+                onClick={() => navigate('/kitchen')}
+                className="
+                  w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-2xl
+                  bg-[#222825] hover:bg-[#2A332E] active:scale-[0.98]
+                  text-[#E5B86A] text-sm font-bold
+                  border border-[#38443C] hover:border-[#82B895] transition-all duration-200 cursor-pointer
+                  focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                "
+              >
+                <ChefHat className="w-4 h-4 text-[#82B895]" />
+                Track Order in Kitchen Display (Live KDS)
+              </button>
+
               <button
                 id="back-to-menu-btn"
                 type="button"
