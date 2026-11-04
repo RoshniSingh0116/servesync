@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { connectDB } = require('./config/db');
+const foodRoutes = require('./routes/foodRoutes');
 
 dotenv.config();
 
@@ -11,11 +12,15 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// Root route
 app.get('/', (req, res) => {
   res.json({ message: 'ServeSync API is running.' });
 });
 
-// Connect to MongoDB first, then start accepting HTTP requests.
+// Member 1 - Food APIs
+app.use('/api/foods', foodRoutes);
+
+// Connect to MongoDB first, then start the server
 connectDB()
   .then(() => {
     app.listen(PORT, () => {
