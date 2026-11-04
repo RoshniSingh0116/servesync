@@ -4,6 +4,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { connectDB } = require('./config/db');
+const foodRoutes = require('./routes/foodRoutes');
 
 // Member 2: Order routes
 const orderRoutes = require('./routes/orderRoutes');
@@ -17,10 +18,15 @@ const PORT = process.env.PORT || 5001;
 app.use(cors());
 app.use(express.json());
 
+// Root route
 app.get('/', (req, res) => {
   res.json({ message: 'ServeSync API is running.' });
 });
 
+// Member 1 - Food APIs
+app.use('/api/foods', foodRoutes);
+
+// Connect to MongoDB first, then start the server
 // API routes
 app.use('/api/orders', orderRoutes);
 
@@ -37,4 +43,4 @@ connectDB()
   .catch((err) => {
     console.error('Failed to connect to MongoDB:', err.message);
     process.exit(1);
-  });
+  }); 
