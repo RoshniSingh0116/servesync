@@ -23,6 +23,7 @@ const {
   insertOrder,
   findOrderById,
   findAllOrders,
+  findOrdersByTableNumber,
 } = require('../repositories/orderRepository');
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
@@ -142,12 +143,14 @@ async function placeOrder(req, res) {
     );
 
     /* ── 11. Build and save the order document ── */
+    const now = new Date();
     const orderDoc = {
       tableNumber: parsedTable,
       items: enrichedItems,
       totalAmount,
       status: 'Pending',
-      createdAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
     };
 
     const result = await insertOrder(orderDoc);
@@ -207,4 +210,33 @@ async function getAllOrders(req, res) {
   }
 }
 
-module.exports = { placeOrder, getOrderById, getAllOrders };
+/* ─── GET /api/orders/table/:tableNumber ──────────────────────────────────── */
+
+/**
+ * getOrdersByTable — returns all orders for a specific table number, newest-first.
+ * Useful for showing a customer or staff member all orders placed at a table.
+ */
+async function getOrdersByTable(req, res) {
+  try {
+    const { tableNumber } = req.params;
+
+    /* Validate tableNumber — must be a positive integer */
+    const parsed = Number(tableNumber);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      return res.status(400).json({
+        error: 'tableNumber must be a positive integer.',
+      });
+    }
+
+    const orders = await findOrdersByTableNumber(parsed);
+
+    return res.status(200).json({ tableNumber: parsed, count: orders.length, orders });
+  } catch (err) {
+    console.error('[getOrdersByTable] Error:', err.message);
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch orders for table. Please try again.' });
+  }
+}
+
+module.exports = { placeOrder, getOrderById, getAllOrders, getOrdersByTable };
