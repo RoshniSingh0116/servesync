@@ -32,6 +32,21 @@ async function findAllKitchenOrders() {
 }
 
 /**
+ * findOrdersByStatus — returns orders that match the given canonical status,
+ * sorted newest-first.
+ *
+ * @param {string} canonicalStatus  Title-case status string stored in MongoDB
+ *                                  (e.g. 'Pending', 'Preparing', 'Ready', 'Served').
+ * @returns {Promise<object[]>}
+ */
+async function findOrdersByStatus(canonicalStatus) {
+  return ordersCollection()
+    .find({ status: canonicalStatus })
+    .sort({ createdAt: -1 })
+    .toArray();
+}
+
+/**
  * findKitchenOrderById — fetches a single order document by ObjectId.
  *
  * @param {string} id  24-hex-char ObjectId string.
@@ -66,6 +81,7 @@ async function updateOrderStatus(id, status) {
 
 module.exports = {
   findAllKitchenOrders,
+  findOrdersByStatus,
   findKitchenOrderById,
   updateOrderStatus,
 };
