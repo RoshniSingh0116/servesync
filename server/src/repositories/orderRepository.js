@@ -47,4 +47,17 @@ async function findAllOrders() {
   return ordersCollection().find({}).sort({ createdAt: -1 }).toArray();
 }
 
-module.exports = { insertOrder, findOrderById, findAllOrders };
+/**
+ * findOrdersByTableNumber — returns all orders for a specific table, newest-first.
+ *
+ * @param {number} tableNumber  The table number to filter by.
+ * @returns {Promise<object[]>}
+ */
+async function findOrdersByTableNumber(tableNumber) {
+  return ordersCollection()
+    .find({ tableNumber })
+    .sort({ createdAt: -1 })
+    .toArray();
+}
+
+module.exports = { insertOrder, findOrderById, findAllOrders, findOrdersByTableNumber };
