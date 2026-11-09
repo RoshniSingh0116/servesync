@@ -44,7 +44,12 @@ function isValidObjectId(id) {
  */
 async function placeOrder(req, res) {
   try {
-    const { tableNumber, items } = req.body;
+    /* ── 0. Validate request body ── */
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Invalid request body. Expected a JSON object.' });
+    }
+
+    const { tableNumber, items, specialInstructions } = req.body;
 
     /* ── 1. Validate tableNumber ── */
     if (tableNumber === undefined || tableNumber === null || tableNumber === '') {
@@ -68,6 +73,12 @@ async function placeOrder(req, res) {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
 
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return res.status(400).json({
+          error: `items[${i}] must be an object.`,
+        });
+      }
+
       if (!item.foodId || !isValidObjectId(String(item.foodId))) {
         return res.status(400).json({
           error: `items[${i}].foodId is missing or not a valid MongoDB ObjectId.`,
@@ -75,7 +86,7 @@ async function placeOrder(req, res) {
       }
 
       const qty = item.quantity;
-      if (!Number.isInteger(qty) || qty < 1) {
+      if (qty === undefined || qty === null || !Number.isInteger(Number(qty)) || Number(qty) < 1) {
         return res.status(400).json({
           error: `items[${i}].quantity must be a positive integer.`,
         });
@@ -86,18 +97,18 @@ async function placeOrder(req, res) {
     const db = getDB();
     const foodsCollection = db.collection('foods');
 
-    const foodObjectIds = items.map((item) => new ObjectId(String(item.foodId)));
+    // Deduplicate food IDs for query to handle any repeated items safely
+    const uniqueFoodIds = [...new Set(items.map((item) => String(item.foodId)))];
+    const foodObjectIds = uniqueFoodIds.map((id) => new ObjectId(id));
 
     const foodDocs = await foodsCollection
       .find({ _id: { $in: foodObjectIds } })
       .toArray();
 
     /* ── 6. Verify every food item exists ── */
-    if (foodDocs.length !== items.length) {
+    if (foodDocs.length !== uniqueFoodIds.length) {
       const foundIds = new Set(foodDocs.map((f) => String(f._id)));
-      const missing = items
-        .map((item) => String(item.foodId))
-        .filter((id) => !foundIds.has(id));
+      const missing = uniqueFoodIds.filter((id) => !foundIds.has(id));
       return res.status(404).json({
         error: `The following food item(s) do not exist: ${missing.join(', ')}`,
       });
@@ -111,7 +122,7 @@ async function placeOrder(req, res) {
 
     /* ── 7. Verify availability ── */
     // The foods collection may use `isAvailable` (boolean) to mark items
-    // that are currently offered.  If the field is absent (older documents
+    // that are currently offered. If the field is absent (older documents
     // seeded without it), the item is treated as available.
     for (let i = 0; i < items.length; i++) {
       const food = foodMap[String(items[i].foodId)];
@@ -125,13 +136,14 @@ async function placeOrder(req, res) {
     /* ── 8 & 9. Read prices from MongoDB and build enriched items ── */
     const enrichedItems = items.map((item) => {
       const food = foodMap[String(item.foodId)];
-      const price = food.price;
-      const subtotal = price * item.quantity;
+      const price = Number(food.price);
+      const quantity = Number(item.quantity);
+      const subtotal = price * quantity;
       return {
         foodId: new ObjectId(String(item.foodId)),
         name: food.name,
         price,
-        quantity: item.quantity,
+        quantity,
         subtotal,
       };
     });
@@ -148,10 +160,15 @@ async function placeOrder(req, res) {
       tableNumber: parsedTable,
       items: enrichedItems,
       totalAmount,
+      total: totalAmount, // For frontend compatibility (OrderCard, KDS)
       status: 'Pending',
       createdAt: now,
       updatedAt: now,
     };
+
+    if (specialInstructions && typeof specialInstructions === 'string' && specialInstructions.trim()) {
+      orderDoc.specialInstructions = specialInstructions.trim();
+    }
 
     const result = await insertOrder(orderDoc);
 
@@ -203,7 +220,7 @@ async function getOrderById(req, res) {
 async function getAllOrders(req, res) {
   try {
     const orders = await findAllOrders();
-    return res.status(200).json({ orders });
+    return res.status(200).json({ count: orders.length, orders });
   } catch (err) {
     console.error('[getAllOrders] Error:', err.message);
     return res.status(500).json({ error: 'Failed to fetch orders. Please try again.' });

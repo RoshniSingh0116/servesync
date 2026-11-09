@@ -49,13 +49,20 @@ async function findAllOrders() {
 
 /**
  * findOrdersByTableNumber — returns all orders for a specific table, newest-first.
+ * Handles both numeric and string representations of tableNumber in MongoDB.
  *
- * @param {number} tableNumber  The table number to filter by.
+ * @param {number|string} tableNumber  The table number to filter by.
  * @returns {Promise<object[]>}
  */
 async function findOrdersByTableNumber(tableNumber) {
+  const num = Number(tableNumber);
   return ordersCollection()
-    .find({ tableNumber })
+    .find({
+      $or: [
+        { tableNumber: num },
+        { tableNumber: String(tableNumber) },
+      ],
+    })
     .sort({ createdAt: -1 })
     .toArray();
 }
