@@ -14,6 +14,9 @@
  *    frontend mock data (name, description, price, category, image,
  *    isVeg, isPopular, isAvailable) plus MongoDB's auto-generated _id.
  *  - `updatedAt` is managed here on every write so callers never forget it.
+ *  - ObjectId construction is wrapped in try-catch as a defensive measure.
+ *    The controller validates IDs before calling these functions, but this
+ *    ensures the repository never throws an unhandled BSONTypeError.
  */
 
 const { ObjectId } = require('mongodb');
@@ -44,11 +47,21 @@ async function findAllFoods(category) {
 /**
  * findFoodById — fetches a single food document by its ObjectId string.
  *
+ * Returns null (instead of throwing) when `id` cannot be converted to a
+ * valid ObjectId — the controller validates first, but this guard prevents
+ * an unhandled BSONTypeError from propagating if called directly.
+ *
  * @param {string} id  A 24-character hex ObjectId string.
  * @returns {Promise<object|null>}
  */
 async function findFoodById(id) {
-  return foodsCollection().findOne({ _id: new ObjectId(id) });
+  let objectId;
+  try {
+    objectId = new ObjectId(id);
+  } catch {
+    return null;
+  }
+  return foodsCollection().findOne({ _id: objectId });
 }
 
 /* ─── Write operations ───────────────────────────────────────────────── */
@@ -70,13 +83,24 @@ async function insertFood(foodDoc) {
  * always refreshes `updatedAt`.  Fields not present in `fields` are left
  * untouched (preserves existing data).
  *
+ * Returns null (instead of throwing) when `id` cannot be converted to a
+ * valid ObjectId — matches the null-on-not-found contract the controller
+ * relies on.
+ *
  * @param {string} id      24-hex-char ObjectId string.
  * @param {object} fields  Plain object of fields to overwrite.
  * @returns {Promise<object|null>}  The updated document, or null if not found.
  */
 async function updateFoodById(id, fields) {
+  let objectId;
+  try {
+    objectId = new ObjectId(id);
+  } catch {
+    return null;
+  }
+
   const result = await foodsCollection().findOneAndUpdate(
-    { _id: new ObjectId(id) },
+    { _id: objectId },
     { $set: { ...fields, updatedAt: new Date() } },
     { returnDocument: 'after' }
   );
@@ -92,11 +116,21 @@ async function updateFoodById(id, fields) {
 /**
  * deleteFoodById — permanently removes a single food document.
  *
+ * Returns a DeleteResult with deletedCount: 0 (instead of throwing) when
+ * `id` cannot be converted to a valid ObjectId — the controller verifies
+ * existence before calling this, but this guard prevents BSONTypeError.
+ *
  * @param {string} id  24-hex-char ObjectId string.
  * @returns {Promise<import('mongodb').DeleteResult>}
  */
 async function deleteFoodById(id) {
-  return foodsCollection().deleteOne({ _id: new ObjectId(id) });
+  let objectId;
+  try {
+    objectId = new ObjectId(id);
+  } catch {
+    return { acknowledged: false, deletedCount: 0 };
+  }
+  return foodsCollection().deleteOne({ _id: objectId });
 }
 
 module.exports = {
