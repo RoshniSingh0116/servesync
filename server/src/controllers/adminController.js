@@ -16,22 +16,28 @@
  * The project's installed dependencies are:
  *   cors, dotenv, express, mongodb
  *
- * bcrypt and jsonwebtoken are NOT installed.  Per the task spec:
+ * bcryptjs and jsonwebtoken are NOT installed.  Per the task spec:
  *   "If a required authentication dependency or password-storage approach is
  *    not already specified or installed, do not introduce one independently.
  *    Explain what is missing and ask before adding it."
  *
- * Therefore this controller performs a DIRECT STRING COMPARISON between the
- * submitted password and the stored password field in the `admins` collection.
+ * Therefore this controller:
+ *   1. Performs a TIMING-SAFE string comparison using Node.js's built-in
+ *      `crypto.timingSafeEqual()` — no new dependencies needed.
+ *      This prevents timing-based attacks even without bcrypt.
+ *   2. Returns a session token derived from Node.js's built-in
+ *      `crypto.randomBytes()` — a 32-byte hex string stored in the
+ *      response body.  No JWT signing is performed.
  *
  * ⚠️  IMPORTANT — Coordination required before production:
- *   This plain-text comparison is intentionally temporary and only safe for
- *   local development where the MongoDB instance is not publicly reachable.
- *   Before this is merged or deployed, the team must:
+ *   This plain-text password comparison is intentionally temporary and only
+ *   safe for local development where the MongoDB instance is not publicly
+ *   reachable.  Before this is merged or deployed, the team must:
  *     1. Run `npm install bcryptjs jsonwebtoken` in server/.
  *     2. Hash the admin password stored in the `admins` collection.
- *     3. Replace the direct comparison below with bcrypt.compare().
- *     4. Issue a JWT on success and validate it on protected routes.
+ *     3. Replace timingSafeEqual() below with bcrypt.compare().
+ *     4. Replace the randomBytes token with a signed JWT.
+ *     5. Add a middleware that validates the JWT on protected routes.
  *   See the Phase 2 design document for the full implementation plan.
  *
  * ─── Design decisions ─────────────────────────────────────────────────────
@@ -47,7 +53,8 @@
  *  - Empty collections return an empty array / zero counts — never an error.
  */
 
-const { getDB }              = require('../config/db');
+const crypto                  = require('crypto');
+const { getDB }               = require('../config/db');
 const { findAdminByUsername } = require('../repositories/adminRepository');
 const { findAllFoods }        = require('../repositories/foodRepository');
 const { findAllOrders }       = require('../repositories/orderRepository');
@@ -55,10 +62,41 @@ const { findAllOrders }       = require('../repositories/orderRepository');
 /* ─── POST /api/admin/login ───────────────────────────────────────────── */
 
 /**
+ * timingSafeStringEqual — compares two strings in constant time using
+ * Node's built-in crypto.timingSafeEqual().
+ *
+ * Falls back to `false` immediately if the lengths differ (which itself
+ * leaks the length difference, but that is acceptable for a plain-text
+ * comparison that will be replaced with bcrypt before production).
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function timingSafeStringEqual(a, b) {
+  try {
+    const bufA = Buffer.from(String(a));
+    const bufB = Buffer.from(String(b));
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * adminLogin — validates credentials against the `admins` collection
  * and returns a sanitised admin object on success.
  *
  * Request body: { username: string, password: string }
+ *
+ * Success 200:
+ *   { message, token, admin: { _id, username, role, ... } }
+ *   (password field is always stripped from the response)
+ *
+ * Error 400 — missing fields
+ * Error 401 — invalid credentials (generic message, no enumeration)
+ * Error 500 — database or server error
  */
 async function adminLogin(req, res) {
   try {
@@ -75,24 +113,36 @@ async function adminLogin(req, res) {
     /* ── 2. Look up the admin document ── */
     const admin = await findAdminByUsername(String(username).trim());
 
-    /* ── 3. Verify credentials ──────────────────────────────────────────
-     *
-     * NOTE: Plain-text comparison — temporary until bcryptjs is installed.
-     * See the ⚠️ note at the top of this file.
+    /* ── 3. Verify credentials (timing-safe) ────────────────────────────
      *
      * We use a single generic error message for both "not found" and
      * "wrong password" to prevent username enumeration.
+     *
+     * NOTE: Plain-text comparison — temporary until bcryptjs is installed.
+     * See the ⚠️ note at the top of this file.
      */
-    if (!admin || admin.password !== String(password)) {
+    const credentialsValid =
+      admin !== null && timingSafeStringEqual(admin.password, String(password));
+
+    if (!credentialsValid) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
-    /* ── 4. Build the safe response — strip the password ── */
+    /* ── 4. Generate a session token (crypto.randomBytes — no JWT dep) ──
+     *
+     * This is a simple 32-byte random hex token returned to the client.
+     * It is NOT persisted server-side in this commit (stateless demo).
+     * Replace with a signed JWT once jsonwebtoken is approved and installed.
+     */
+    const token = crypto.randomBytes(32).toString('hex');
+
+    /* ── 5. Build the safe response — strip the password field ── */
     // eslint-disable-next-line no-unused-vars
     const { password: _pw, ...safeAdmin } = admin;
 
     return res.status(200).json({
       message: 'Login successful.',
+      token,
       admin: safeAdmin,
     });
   } catch (err) {

@@ -4,8 +4,9 @@
  *
  * Main admin screen with:
  *  - Collapsible sidebar navigation (desktop fixed | mobile overlay)
- *  - Overview stat cards
+ *  - Overview stat cards (food items + order summary from OrderContext)
  *  - Food management section (FoodTable + FoodForm modal)
+ *  - Orders overview section (read-only, links to Kitchen KDS)
  */
 
 import { useState, useMemo } from 'react';
@@ -25,8 +26,15 @@ import {
   ChevronRight,
   Leaf,
   ChefHat,
+  ClipboardList,
+  Clock,
+  CheckCheck,
+  Flame,
+  Bell,
+  ExternalLink,
 } from 'lucide-react';
 import { MENU_ITEMS } from '../../mocks/mockData';
+import { useOrders } from '../../context/OrderContext';
 import FoodTable from '../../components/admin/FoodTable';
 import FoodForm from '../../components/admin/FoodForm';
 
@@ -49,6 +57,7 @@ function generateId() {
 const NAV_LINKS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'menu', label: 'Menu Management', icon: UtensilsCrossed },
+  { id: 'orders', label: 'Orders Overview', icon: ClipboardList },
 ];
 
 /* ─── Sidebar Component (declared outside to maintain identity across renders) ─── */
@@ -155,6 +164,9 @@ function Sidebar({ activeSection, setActiveSection, onClose, onLogout, navigate 
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
 
+  // Order data from shared OrderContext
+  const { orders } = useOrders();
+
   // Food items state (seeded from mockData)
   const [items, setItems] = useState(seedItems);
 
@@ -166,7 +178,7 @@ export default function AdminDashboardPage() {
   const [formMode, setFormMode] = useState(null); // 'add' | 'edit'
   const [editTarget, setEditTarget] = useState(null);
 
-  // Computed stats
+  // Computed food stats
   const stats = useMemo(() => {
     const total = items.length;
     const available = items.filter((i) => i.isAvailable).length;
@@ -175,6 +187,18 @@ export default function AdminDashboardPage() {
     const vegCount = items.filter((i) => i.isVeg).length;
     return { total, available, unavailable, popular, vegCount };
   }, [items]);
+
+  // Computed order stats from OrderContext
+  const orderStats = useMemo(() => {
+    const total = orders.length;
+    const pending = orders.filter((o) => o.status === 'Pending').length;
+    const preparing = orders.filter((o) => o.status === 'Preparing').length;
+    const ready = orders.filter((o) => o.status === 'Ready').length;
+    const served = orders.filter((o) => o.status === 'Served').length;
+    const active = pending + preparing + ready;
+    const completed = served;
+    return { total, pending, preparing, ready, served, active, completed };
+  }, [orders]);
 
   /* ─── CRUD handlers ─── */
   function handleAdd(formData) {
@@ -291,7 +315,12 @@ export default function AdminDashboardPage() {
         {/* Page body */}
         <main className="flex-1 px-4 sm:px-6 py-6 max-w-7xl w-full mx-auto">
           {activeSection === 'overview' && (
-            <OverviewSection stats={stats} onNavigateToMenu={() => setActiveSection('menu')} />
+            <OverviewSection
+              stats={stats}
+              orderStats={orderStats}
+              onNavigateToMenu={() => setActiveSection('menu')}
+              onNavigateToOrders={() => setActiveSection('orders')}
+            />
           )}
           {activeSection === 'menu' && (
             <MenuSection
@@ -301,6 +330,9 @@ export default function AdminDashboardPage() {
               onDelete={handleDelete}
               onToggleAvail={handleToggleAvail}
             />
+          )}
+          {activeSection === 'orders' && (
+            <OrdersSection orders={orders} onGoToKitchen={() => navigate('/kitchen')} />
           )}
         </main>
 
@@ -329,8 +361,8 @@ export default function AdminDashboardPage() {
 }
 
 /* ─── Overview Section ────────────────────────────────────────────────── */
-function OverviewSection({ stats, onNavigateToMenu }) {
-  const cards = [
+function OverviewSection({ stats, orderStats, onNavigateToMenu, onNavigateToOrders }) {
+  const foodCards = [
     {
       label: 'Total Menu Items',
       value: stats.total,
@@ -381,32 +413,114 @@ function OverviewSection({ stats, onNavigateToMenu }) {
     },
   ];
 
+  const orderCards = [
+    {
+      label: 'Total Orders',
+      value: orderStats.total,
+      icon: ClipboardList,
+      color: 'text-[#E5B86A]',
+      bg: 'bg-[#E5B86A]/10',
+      border: 'border-[#E5B86A]/20',
+    },
+    {
+      label: 'Pending Orders',
+      value: orderStats.pending,
+      icon: Flame,
+      color: 'text-amber-400',
+      bg: 'bg-amber-400/10',
+      border: 'border-amber-400/20',
+    },
+    {
+      label: 'Preparing',
+      value: orderStats.preparing,
+      icon: Bell,
+      color: 'text-blue-400',
+      bg: 'bg-blue-400/10',
+      border: 'border-blue-400/20',
+    },
+    {
+      label: 'Ready for Pickup',
+      value: orderStats.ready,
+      icon: CheckCircle2,
+      color: 'text-[#82B895]',
+      bg: 'bg-[#82B895]/10',
+      border: 'border-[#82B895]/20',
+    },
+    {
+      label: 'Completed / Served',
+      value: orderStats.completed,
+      icon: CheckCheck,
+      color: 'text-slate-400',
+      bg: 'bg-slate-400/10',
+      border: 'border-slate-400/20',
+    },
+    {
+      label: 'Active in Kitchen',
+      value: orderStats.active,
+      icon: Clock,
+      color: 'text-purple-400',
+      bg: 'bg-purple-400/10',
+      border: 'border-purple-400/20',
+    },
+  ];
+
   return (
     <div>
       {/* Section heading */}
       <div className="mb-6">
         <h2 className="text-2xl font-black text-[#F5F5F0] mb-1">Dashboard Overview</h2>
         <p className="text-sm text-[#A8B3AA]">
-          A snapshot of your restaurant menu at a glance.
+          A snapshot of your restaurant menu and orders at a glance.
         </p>
       </div>
 
-      {/* Stat cards grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
-        {cards.map(({ label, value, icon: Icon, color, bg, border }) => (
-          <div
-            key={label}
-            className={`bg-[#222825] border ${border} rounded-2xl p-5 flex flex-col gap-3 hover:scale-[1.02] transition-transform duration-200`}
-          >
-            <div className={`w-10 h-10 rounded-xl ${bg} border ${border} flex items-center justify-center`}>
-              <Icon className={`w-5 h-5 ${color}`} />
+      {/* ── Menu Stat Cards ─── */}
+      <div className="mb-3">
+        <h3 className="text-xs font-bold text-[#A8B3AA] uppercase tracking-widest mb-3 flex items-center gap-2">
+          <UtensilsCrossed className="w-3.5 h-3.5 text-[#E5B86A]" />
+          Menu Summary
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+          {foodCards.map(({ label, value, icon: Icon, color, bg, border }) => (
+            <div
+              key={label}
+              className={`bg-[#222825] border ${border} rounded-2xl p-5 flex flex-col gap-3 hover:scale-[1.02] transition-transform duration-200`}
+            >
+              <div className={`w-10 h-10 rounded-xl ${bg} border ${border} flex items-center justify-center`}>
+                <Icon className={`w-5 h-5 ${color}`} />
+              </div>
+              <div>
+                <p className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">{value}</p>
+                <p className="text-xs text-[#A8B3AA] font-medium mt-0.5">{label}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">{value}</p>
-              <p className="text-xs text-[#A8B3AA] font-medium mt-0.5">{label}</p>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Order Stat Cards ─── */}
+      <div className="mb-8">
+        <h3 className="text-xs font-bold text-[#A8B3AA] uppercase tracking-widest mb-3 flex items-center gap-2">
+          <ClipboardList className="w-3.5 h-3.5 text-[#82B895]" />
+          Orders Summary
+          <span className="text-[10px] font-normal text-[#68736A] normal-case tracking-normal">(live from OrderContext)</span>
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {orderCards.map(({ label, value, icon: Icon, color, bg, border }) => (
+            <div
+              key={label}
+              className={`bg-[#222825] border ${border} rounded-2xl p-5 flex flex-col gap-3 hover:scale-[1.02] transition-transform duration-200`}
+            >
+              <div className={`w-10 h-10 rounded-xl ${bg} border ${border} flex items-center justify-center`}>
+                <Icon className={`w-5 h-5 ${color}`} />
+              </div>
+              <div>
+                <p className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">{value}</p>
+                <p className="text-xs text-[#A8B3AA] font-medium mt-0.5">{label}</p>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       {/* Quick actions */}
@@ -420,6 +534,14 @@ function OverviewSection({ stats, onNavigateToMenu }) {
           >
             <UtensilsCrossed className="w-4 h-4" />
             Manage Menu
+          </button>
+          <button
+            type="button"
+            onClick={onNavigateToOrders}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-[#222825] hover:bg-[#2A332E] text-[#F5F5F0] border border-[#38443C] hover:border-[#82B895]/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+          >
+            <ClipboardList className="w-4 h-4 text-[#82B895]" />
+            View Orders
           </button>
         </div>
       </div>

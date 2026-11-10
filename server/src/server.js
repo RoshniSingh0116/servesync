@@ -12,6 +12,9 @@ const orderRoutes = require('./routes/orderRoutes');
 // Member 4: Kitchen Dashboard routes
 const kitchenRoutes = require('./routes/kitchenRoutes');
 
+// Member 3: Admin routes
+const adminRoutes = require('./routes/adminRoutes');
+
 const app = express();
 const PORT = process.env.PORT || 5001;
 
@@ -23,14 +26,16 @@ app.get('/', (req, res) => {
   res.json({ message: 'ServeSync API is running.' });
 });
 
-// Member 1 - Food APIs
+// Member 1 — Food APIs
 app.use('/api/foods', foodRoutes);
 
-// Connect to MongoDB first, then start the server
-// API routes
+// Member 2 — Order APIs
 app.use('/api/orders', orderRoutes);
 
-// Member 4: Kitchen Dashboard API
+// Member 3 — Admin APIs (login, food management, order overview, dashboard stats)
+app.use('/api/admin', adminRoutes);
+
+// Member 4 — Kitchen Dashboard API
 app.use('/api/kitchen', kitchenRoutes);
 
 // Connect to MongoDB first, then start accepting HTTP requests.
@@ -43,4 +48,4 @@ connectDB()
   .catch((err) => {
     console.error('Failed to connect to MongoDB:', err.message);
     process.exit(1);
-  }); 
+  });
