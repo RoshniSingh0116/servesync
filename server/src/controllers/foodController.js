@@ -20,6 +20,12 @@
  *  - `isVeg` and `isPopular` default to false on creation when not provided.
  *  - Category values mirror the CATEGORIES constant in the frontend
  *    mockData.js so the customer menu filter works correctly.
+ *  - Boolean fields accept both actual JSON booleans (true/false) and the
+ *    string representations "true"/"false" for broader client compatibility.
+ *  - Internal MongoDB fields (_id, __v, createdAt) are explicitly blocked
+ *    on PUT to prevent accidental or malicious overwrites.
+ *  - String fields are validated to be actual strings (not objects/arrays)
+ *    to guard against NoSQL operator injection (e.g. {"name": {"$gt": ""}}).
  */
 
 const { ObjectId } = require('mongodb');
@@ -46,6 +52,12 @@ const VALID_CATEGORIES = [
   'Drinks',
 ];
 
+/**
+ * Fields that are managed internally by MongoDB or by the server and must
+ * never be accepted from the client on PUT requests.
+ */
+const PROTECTED_FIELDS = ['_id', '__v', 'createdAt', 'updatedAt'];
+
 /* ─── Helpers ────────────────────────────────────────────────────────── */
 
 /**
@@ -60,6 +72,39 @@ function isValidObjectId(id) {
     ObjectId.isValid(id) &&
     String(new ObjectId(id)) === id
   );
+}
+
+/**
+ * Coerces a value to a boolean, accepting actual JSON booleans as well as
+ * the string literals "true" and "false" (case-insensitive).
+ *
+ * Returns:
+ *   { ok: true,  value: <boolean> }  when the value is acceptable.
+ *   { ok: false }                    when the value cannot be coerced.
+ *
+ * @param {*} val
+ * @returns {{ ok: boolean, value?: boolean }}
+ */
+function parseBoolean(val) {
+  if (typeof val === 'boolean') return { ok: true, value: val };
+  if (typeof val === 'string') {
+    const lower = val.toLowerCase().trim();
+    if (lower === 'true')  return { ok: true, value: true };
+    if (lower === 'false') return { ok: true, value: false };
+  }
+  return { ok: false };
+}
+
+/**
+ * Returns true when `val` is a plain (non-null, non-array) JavaScript object.
+ * Used to detect potential NoSQL operator injection in string fields,
+ * e.g. { "name": { "$gt": "" } }.
+ *
+ * @param {*} val
+ * @returns {boolean}
+ */
+function isPlainObject(val) {
+  return val !== null && typeof val === 'object' && !Array.isArray(val);
 }
 
 /* ─── GET /api/foods ──────────────────────────────────────────────────── */
@@ -79,6 +124,9 @@ async function getAllFoods(req, res) {
 
     /* Validate the category filter if provided */
     if (category !== undefined) {
+      if (typeof category !== 'string' || isPlainObject(category)) {
+        return res.status(400).json({ error: 'category must be a string.' });
+      }
       if (!VALID_CATEGORIES.includes(category)) {
         return res.status(400).json({
           error: `"${category}" is not a valid category.`,
@@ -136,9 +184,24 @@ async function getFoodById(req, res) {
  *
  * Required fields:  name, description, price, category
  * Optional fields:  image, isVeg, isPopular, isAvailable
+ *
+ * Validation rules:
+ *  - name        : non-empty string
+ *  - description : non-empty string
+ *  - price       : positive number (> 0)
+ *  - category    : one of VALID_CATEGORIES
+ *  - image       : string (optional, defaults to '')
+ *  - isVeg       : boolean or "true"/"false" string (optional, defaults to false)
+ *  - isPopular   : boolean or "true"/"false" string (optional, defaults to false)
+ *  - isAvailable : boolean or "true"/"false" string (optional, defaults to true)
  */
 async function addFood(req, res) {
   try {
+    /* Guard against missing or non-object body */
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Request body must be a JSON object.' });
+    }
+
     const {
       name,
       description,
@@ -151,8 +214,15 @@ async function addFood(req, res) {
     } = req.body;
 
     /* ── 1. Validate required string fields ── */
+    if (isPlainObject(name) || Array.isArray(name)) {
+      return res.status(400).json({ error: 'name must be a string.' });
+    }
     if (!name || String(name).trim() === '') {
       return res.status(400).json({ error: 'name is required.' });
+    }
+
+    if (isPlainObject(description) || Array.isArray(description)) {
+      return res.status(400).json({ error: 'description must be a string.' });
     }
     if (!description || String(description).trim() === '') {
       return res.status(400).json({ error: 'description is required.' });
@@ -162,6 +232,9 @@ async function addFood(req, res) {
     if (price === undefined || price === null || price === '') {
       return res.status(400).json({ error: 'price is required.' });
     }
+    if (isPlainObject(price) || Array.isArray(price)) {
+      return res.status(400).json({ error: 'price must be a number.' });
+    }
     const parsedPrice = Number(price);
     if (isNaN(parsedPrice) || parsedPrice <= 0) {
       return res
@@ -170,6 +243,9 @@ async function addFood(req, res) {
     }
 
     /* ── 3. Validate category ── */
+    if (isPlainObject(category) || Array.isArray(category)) {
+      return res.status(400).json({ error: 'category must be a string.' });
+    }
     if (!category || String(category).trim() === '') {
       return res.status(400).json({ error: 'category is required.' });
     }
@@ -180,7 +256,40 @@ async function addFood(req, res) {
       });
     }
 
-    /* ── 4. Build the document ── */
+    /* ── 4. Validate optional boolean fields ── */
+    let resolvedIsVeg = false;
+    if (isVeg !== undefined) {
+      const parsed = parseBoolean(isVeg);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: 'isVeg must be a boolean (true or false).' });
+      }
+      resolvedIsVeg = parsed.value;
+    }
+
+    let resolvedIsPopular = false;
+    if (isPopular !== undefined) {
+      const parsed = parseBoolean(isPopular);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: 'isPopular must be a boolean (true or false).' });
+      }
+      resolvedIsPopular = parsed.value;
+    }
+
+    let resolvedIsAvailable = true;
+    if (isAvailable !== undefined) {
+      const parsed = parseBoolean(isAvailable);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: 'isAvailable must be a boolean (true or false).' });
+      }
+      resolvedIsAvailable = parsed.value;
+    }
+
+    /* ── 5. Validate optional image field ── */
+    if (image !== undefined && (isPlainObject(image) || Array.isArray(image))) {
+      return res.status(400).json({ error: 'image must be a string.' });
+    }
+
+    /* ── 6. Build the document ── */
     const now = new Date();
     const foodDoc = {
       name:        String(name).trim(),
@@ -188,14 +297,14 @@ async function addFood(req, res) {
       price:       parsedPrice,
       category,
       image:       image ? String(image).trim() : '',
-      isVeg:       typeof isVeg === 'boolean' ? isVeg : false,
-      isPopular:   typeof isPopular === 'boolean' ? isPopular : false,
-      isAvailable: typeof isAvailable === 'boolean' ? isAvailable : true,
+      isVeg:       resolvedIsVeg,
+      isPopular:   resolvedIsPopular,
+      isAvailable: resolvedIsAvailable,
       createdAt:   now,
       updatedAt:   now,
     };
 
-    /* ── 5. Insert and return ── */
+    /* ── 7. Insert and return ── */
     const result = await insertFood(foodDoc);
 
     return res.status(201).json({
@@ -223,6 +332,13 @@ async function addFood(req, res) {
  *
  * Permitted update fields:
  *   name, description, price, category, image, isVeg, isPopular, isAvailable
+ *
+ * Blocked fields (rejected with 400):
+ *   _id, __v, createdAt, updatedAt — these are managed internally by MongoDB
+ *   and the server and must never be overwritten by the client.
+ *
+ * Validation rules match addFood, but all fields are optional (partial update).
+ * At least one valid updatable field must be present.
  */
 async function updateFood(req, res) {
   try {
@@ -233,16 +349,34 @@ async function updateFood(req, res) {
       return res.status(400).json({ error: 'Invalid food ID format.' });
     }
 
-    /* ── 2. Verify the food exists ── */
+    /* ── 2. Guard against missing or non-object body ── */
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Request body must be a JSON object.' });
+    }
+
+    /* ── 3. Block attempts to update internal/protected fields ── */
+    const attemptedProtected = PROTECTED_FIELDS.filter(
+      (field) => req.body[field] !== undefined
+    );
+    if (attemptedProtected.length > 0) {
+      return res.status(400).json({
+        error: `The following fields cannot be updated: ${attemptedProtected.join(', ')}.`,
+      });
+    }
+
+    /* ── 4. Verify the food exists ── */
     const existing = await findFoodById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Food item not found.' });
     }
 
-    /* ── 3. Build the partial update — only include provided fields ── */
+    /* ── 5. Build the partial update — only include provided fields ── */
     const updates = {};
 
     if (req.body.name !== undefined) {
+      if (isPlainObject(req.body.name) || Array.isArray(req.body.name)) {
+        return res.status(400).json({ error: 'name must be a string.' });
+      }
       const trimmed = String(req.body.name).trim();
       if (trimmed === '') {
         return res.status(400).json({ error: 'name cannot be empty.' });
@@ -251,6 +385,9 @@ async function updateFood(req, res) {
     }
 
     if (req.body.description !== undefined) {
+      if (isPlainObject(req.body.description) || Array.isArray(req.body.description)) {
+        return res.status(400).json({ error: 'description must be a string.' });
+      }
       const trimmed = String(req.body.description).trim();
       if (trimmed === '') {
         return res.status(400).json({ error: 'description cannot be empty.' });
@@ -259,6 +396,9 @@ async function updateFood(req, res) {
     }
 
     if (req.body.price !== undefined) {
+      if (isPlainObject(req.body.price) || Array.isArray(req.body.price)) {
+        return res.status(400).json({ error: 'price must be a number.' });
+      }
       const parsedPrice = Number(req.body.price);
       if (isNaN(parsedPrice) || parsedPrice <= 0) {
         return res
@@ -269,6 +409,9 @@ async function updateFood(req, res) {
     }
 
     if (req.body.category !== undefined) {
+      if (isPlainObject(req.body.category) || Array.isArray(req.body.category)) {
+        return res.status(400).json({ error: 'category must be a string.' });
+      }
       if (!VALID_CATEGORIES.includes(req.body.category)) {
         return res.status(400).json({
           error: `"${req.body.category}" is not a valid category.`,
@@ -279,31 +422,37 @@ async function updateFood(req, res) {
     }
 
     if (req.body.image !== undefined) {
+      if (isPlainObject(req.body.image) || Array.isArray(req.body.image)) {
+        return res.status(400).json({ error: 'image must be a string.' });
+      }
       updates.image = String(req.body.image).trim();
     }
 
     if (req.body.isVeg !== undefined) {
-      if (typeof req.body.isVeg !== 'boolean') {
-        return res.status(400).json({ error: 'isVeg must be a boolean.' });
+      const parsed = parseBoolean(req.body.isVeg);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: 'isVeg must be a boolean (true or false).' });
       }
-      updates.isVeg = req.body.isVeg;
+      updates.isVeg = parsed.value;
     }
 
     if (req.body.isPopular !== undefined) {
-      if (typeof req.body.isPopular !== 'boolean') {
-        return res.status(400).json({ error: 'isPopular must be a boolean.' });
+      const parsed = parseBoolean(req.body.isPopular);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: 'isPopular must be a boolean (true or false).' });
       }
-      updates.isPopular = req.body.isPopular;
+      updates.isPopular = parsed.value;
     }
 
     if (req.body.isAvailable !== undefined) {
-      if (typeof req.body.isAvailable !== 'boolean') {
-        return res.status(400).json({ error: 'isAvailable must be a boolean.' });
+      const parsed = parseBoolean(req.body.isAvailable);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: 'isAvailable must be a boolean (true or false).' });
       }
-      updates.isAvailable = req.body.isAvailable;
+      updates.isAvailable = parsed.value;
     }
 
-    /* ── 4. Reject empty-body requests ── */
+    /* ── 6. Reject empty-body requests (no recognisable updatable fields) ── */
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({
         error:
@@ -312,7 +461,7 @@ async function updateFood(req, res) {
       });
     }
 
-    /* ── 5. Persist and return ── */
+    /* ── 7. Persist and return ── */
     const updated = await updateFoodById(id, updates);
 
     return res.status(200).json({
