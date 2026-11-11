@@ -178,10 +178,13 @@ function getOrdersCollection() {
  */
 function buildOrderDoc(fields) {
   const now = new Date();
+  const totalAmount =
+    typeof fields.totalAmount === 'number' ? fields.totalAmount : 0;
   return {
     tableNumber: fields.tableNumber,
     items: fields.items,
-    totalAmount: fields.totalAmount,
+    totalAmount,
+    total: totalAmount,  // alias kept for frontend (OrderCard) and KDS compatibility
     status: fields.status ?? 'Pending',
     specialInstructions:
       fields.specialInstructions !== undefined ? fields.specialInstructions : null,
@@ -195,6 +198,9 @@ function buildOrderDoc(fields) {
 module.exports = {
   /** The allowed status values — use instead of hard-coding strings. */
   ORDER_STATUSES,
+
+  /** Maximum character length for specialInstructions. */
+  MAX_SPECIAL_INSTRUCTIONS_LENGTH,
 
   /** Validate a single item sub-document. */
   validateOrderItem,
