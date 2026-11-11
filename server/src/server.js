@@ -41,6 +41,28 @@ app.use('/api/admin', adminRoutes);
 // Member 4 — Kitchen Dashboard APIs
 app.use('/api/kitchen', kitchenRoutes);
 
+/* ─── 404 handler — catch all unmatched routes ───────────────────────── */
+app.use((req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
+});
+
+/* ─── Global error handler ───────────────────────────────────────────── */
+// Catches synchronous errors thrown by route handlers and middleware,
+// including JSON parse errors (Express throws a SyntaxError with
+// status 400 when the request body is malformed JSON).
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  // Malformed JSON body
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ error: 'Invalid JSON in request body.' });
+  }
+
+  // Unexpected errors — log the full error internally but return a safe
+  // generic message to the client so internal details are not leaked.
+  console.error('[GlobalErrorHandler]', err.message);
+  return res.status(500).json({ error: 'An unexpected server error occurred.' });
+});
+
 // Connect to MongoDB first, then start accepting HTTP requests.
 connectDB()
   .then(() => {
