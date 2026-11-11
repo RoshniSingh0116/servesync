@@ -1,19 +1,22 @@
+'use strict';
 
 require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
 const { connectDB } = require('./config/db');
+
+// Member 1: Food API routes
 const foodRoutes = require('./routes/foodRoutes');
 
-// Member 2: Order routes
+// Member 2: Order API routes
 const orderRoutes = require('./routes/orderRoutes');
+
+// Member 3: Admin API routes
+const adminRoutes = require('./routes/adminRoutes');
 
 // Member 4: Kitchen Dashboard routes
 const kitchenRoutes = require('./routes/kitchenRoutes');
-
-// Member 3: Admin routes
-const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -21,7 +24,7 @@ const PORT = process.env.PORT || 5001;
 app.use(cors());
 app.use(express.json());
 
-// Root route
+// Health-check / root route
 app.get('/', (req, res) => {
   res.json({ message: 'ServeSync API is running.' });
 });
@@ -32,10 +35,10 @@ app.use('/api/foods', foodRoutes);
 // Member 2 — Order APIs
 app.use('/api/orders', orderRoutes);
 
-// Member 3 — Admin APIs (login, food management, order overview, dashboard stats)
+// Member 3 — Admin APIs
 app.use('/api/admin', adminRoutes);
 
-// Member 4 — Kitchen Dashboard API
+// Member 4 — Kitchen Dashboard APIs
 app.use('/api/kitchen', kitchenRoutes);
 
 /* ─── 404 handler — catch all unmatched routes ───────────────────────── */
