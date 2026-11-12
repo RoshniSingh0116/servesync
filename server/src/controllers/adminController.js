@@ -53,11 +53,11 @@
  *  - Empty collections return an empty array / zero counts — never an error.
  */
 
-const crypto                  = require('crypto');
-const { getDB }               = require('../config/db');
-const { findAdminByUsername } = require('../repositories/adminRepository');
-const { findAllFoods }        = require('../repositories/foodRepository');
-const { findAllOrders }       = require('../repositories/orderRepository');
+const crypto          = require('crypto');
+const dbConfig        = require('../config/db');
+const adminRepository = require('../repositories/adminRepository');
+const foodRepository  = require('../repositories/foodRepository');
+const orderRepository = require('../repositories/orderRepository');
 
 /* ─── POST /api/admin/login ───────────────────────────────────────────── */
 
@@ -111,7 +111,7 @@ async function adminLogin(req, res) {
     }
 
     /* ── 2. Look up the admin document ── */
-    const admin = await findAdminByUsername(String(username).trim());
+    const admin = await adminRepository.findAdminByUsername(String(username).trim());
 
     /* ── 3. Verify credentials (timing-safe) ────────────────────────────
      *
@@ -164,7 +164,7 @@ async function adminLogin(req, res) {
  */
 async function adminGetFoods(req, res) {
   try {
-    const foods = await findAllFoods(null); // null = no category filter
+    const foods = await foodRepository.findAllFoods(null); // null = no category filter
 
     return res.status(200).json({
       count: foods.length,
@@ -185,11 +185,18 @@ async function adminGetFoods(req, res) {
  * sorted newest-first.
  *
  * Reuses orderRepository.findAllOrders() — no duplicate query logic.
+ * Ensures table number, items, total, status, and timestamps are present.
  * Returns an empty array when no orders exist.
  */
 async function adminGetOrders(req, res) {
   try {
-    const orders = await findAllOrders();
+    const rawOrders = await orderRepository.findAllOrders();
+
+    const orders = rawOrders.map((order) => ({
+      ...order,
+      total: order.total !== undefined ? order.total : order.totalAmount,
+      totalAmount: order.totalAmount !== undefined ? order.totalAmount : order.total,
+    }));
 
     return res.status(200).json({
       count: orders.length,
@@ -214,19 +221,21 @@ async function adminGetOrders(req, res) {
  *
  * Returns:
  *   {
- *     totalFoods:      number,   // all items in `foods`
- *     availableFoods:  number,   // isAvailable === true
- *     unavailableFoods:number,   // isAvailable === false (or missing)
- *     totalOrders:     number,   // all orders
- *     pendingOrders:   number,   // status === 'Pending'
- *     preparingOrders: number,   // status === 'Preparing'
- *     readyOrders:     number,   // status === 'Ready'
- *     servedOrders:    number,   // status === 'Served'
+ *     totalFoods:       number,   // all items in `foods`
+ *     totalFoodItems:   number,   // alias for totalFoods
+ *     availableFoods:   number,   // isAvailable !== false
+ *     unavailableFoods: number,   // isAvailable === false
+ *     totalOrders:      number,   // all orders
+ *     pendingOrders:    number,   // status === 'Pending'
+ *     preparingOrders:  number,   // status === 'Preparing'
+ *     readyOrders:      number,   // status === 'Ready'
+ *     completedOrders:  number,   // status === 'Served' / 'Completed'
+ *     servedOrders:     number,   // alias for completedOrders
  *   }
  */
 async function adminGetDashboard(req, res) {
   try {
-    const db = getDB();
+    const db = dbConfig.getDB();
     const foodsCol  = db.collection('foods');
     const ordersCol = db.collection('orders');
 
@@ -238,26 +247,28 @@ async function adminGetDashboard(req, res) {
       pendingOrders,
       preparingOrders,
       readyOrders,
-      servedOrders,
+      completedOrders,
     ] = await Promise.all([
       foodsCol.countDocuments({}),
-      foodsCol.countDocuments({ isAvailable: true }),
+      foodsCol.countDocuments({ isAvailable: { $ne: false } }),
       ordersCol.countDocuments({}),
-      ordersCol.countDocuments({ status: 'Pending' }),
-      ordersCol.countDocuments({ status: 'Preparing' }),
-      ordersCol.countDocuments({ status: 'Ready' }),
-      ordersCol.countDocuments({ status: 'Served' }),
+      ordersCol.countDocuments({ status: { $in: ['Pending', 'pending'] } }),
+      ordersCol.countDocuments({ status: { $in: ['Preparing', 'preparing'] } }),
+      ordersCol.countDocuments({ status: { $in: ['Ready', 'ready'] } }),
+      ordersCol.countDocuments({ status: { $in: ['Served', 'served', 'Completed', 'completed'] } }),
     ]);
 
     return res.status(200).json({
       totalFoods,
+      totalFoodItems: totalFoods,
       availableFoods,
       unavailableFoods: totalFoods - availableFoods,
       totalOrders,
       pendingOrders,
       preparingOrders,
       readyOrders,
-      servedOrders,
+      completedOrders,
+      servedOrders: completedOrders,
     });
   } catch (err) {
     console.error('[adminGetDashboard] Error:', err.message);
