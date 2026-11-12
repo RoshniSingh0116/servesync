@@ -1,11 +1,19 @@
 /**
  * OrderConfirmationPage — ServeSync Member 2
  * Displays the confirmed order details after a successful order placement.
- * Reads orderId from the route param (:orderId) and looks it up in OrderContext.
  *
- * Shows a friendly fallback if the order is not found (e.g., on hard refresh).
+ * Data sources (priority order):
+ *  1. location.state.confirmedOrder  — real order object returned by the backend
+ *     POST /api/orders response, passed here from CheckoutPage on the happy path.
+ *  2. In-memory OrderContext lookup (getOrderById)  — retains compatibility with
+ *     mock-flow tests and deep-link navigation where state is unavailable.
+ *  3. Live GET /api/orders/:orderId fetch  — called only if neither of the above
+ *     has the order, e.g. after a hard-refresh on the confirmation URL.
+ *
+ * Commit 5: Connected to real backend.  Displays server-confirmed totalAmount.
  */
 
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   CheckCircle2,
@@ -14,10 +22,13 @@ import {
   ArrowLeft,
   Hash,
   ChefHat,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { useOrders } from '../../context/OrderContext';
+import { getOrderById as fetchOrderById } from '../../api/orderApi';
 
-/* ─── Helper ─────────────────────────────────────────────── */
+/* ─── Helpers ────────────────────────────────────────────── */
 function getTableFromSearch(search) {
   const params = new URLSearchParams(search);
   const t = params.get('table');
@@ -33,6 +44,31 @@ function formatTime(isoString) {
   } catch {
     return '—';
   }
+}
+
+/**
+ * Normalises an order object so the page can render regardless of whether
+ * it came from location.state (backend shape) or OrderContext (in-memory shape).
+ *
+ * Backend shape:  { _id, tableNumber, items: [{ foodId, name, price, quantity, subtotal }], totalAmount, status, createdAt }
+ * Context shape:  { id, tableNumber, items: [{ foodId, name, price, quantity }], totalAmount, total, status, createdAt }
+ */
+function normaliseOrder(raw) {
+  if (!raw) return null;
+  return {
+    id: String(raw._id ?? raw.id ?? ''),
+    tableNumber: raw.tableNumber,
+    items: (raw.items ?? []).map((item) => ({
+      foodId: String(item.foodId ?? ''),
+      name: item.name ?? 'Unknown Item',
+      price: Number(item.price ?? 0),
+      quantity: Number(item.quantity ?? 1),
+      subtotal: Number(item.subtotal ?? item.price * item.quantity ?? 0),
+    })),
+    totalAmount: Number(raw.totalAmount ?? raw.total ?? 0),
+    status: raw.status ?? 'Pending',
+    createdAt: raw.createdAt ?? new Date().toISOString(),
+  };
 }
 
 /* ─── Status badge ───────────────────────────────────────── */
@@ -66,8 +102,8 @@ function OrderNotFound({ onBackToMenu }) {
         Order Not Found
       </h2>
       <p className="text-sm text-[#A8B3AA] max-w-xs leading-relaxed mb-8">
-        We couldn't locate this order. This may happen after a page refresh since
-        orders are stored in session memory only.
+        We couldn't locate this order. It may have been placed before this
+        session, or the server may be temporarily unavailable.
       </p>
       <button
         type="button"
@@ -84,14 +120,63 @@ function OrderNotFound({ onBackToMenu }) {
 /* ─── Page ───────────────────────────────────────────────── */
 export default function OrderConfirmationPage() {
   const { orderId } = useParams();
-  const { search } = useLocation();
+  const { search, state: locationState } = useLocation();
   const navigate = useNavigate();
   const tableNumber = getTableFromSearch(search);
 
-  const { getOrderById } = useOrders();
-  const order = getOrderById(orderId);
+  const { getOrderById: getFromContext } = useOrders();
+
+  const [order, setOrder] = useState(() => {
+    // Priority 1: order passed directly from CheckoutPage via location.state
+    if (locationState?.confirmedOrder) {
+      return normaliseOrder(locationState.confirmedOrder);
+    }
+    // Priority 2: in-memory OrderContext (mock flow / previous commits)
+    const contextOrder = getFromContext(orderId);
+    return contextOrder ? normaliseOrder(contextOrder) : null;
+  });
+
+  const [isFetching, setIsFetching] = useState(!order); // only fetch if not already resolved
+  const [fetchError, setFetchError] = useState('');
 
   const handleBackToMenu = () => navigate(`/menu?table=${tableNumber}`);
+
+  useEffect(() => {
+    // If we already have the order (from state or context) skip the fetch
+    if (order) {
+      setIsFetching(false);
+      return;
+    }
+
+    // Priority 3: fetch from backend (hard-refresh scenario)
+    if (!orderId) {
+      setIsFetching(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadOrder() {
+      try {
+        const { order: fetched } = await fetchOrderById(orderId);
+        if (!cancelled) {
+          setOrder(normaliseOrder(fetched));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFetchError(err.message || 'Failed to load order details.');
+        }
+      } finally {
+        if (!cancelled) setIsFetching(false);
+      }
+    }
+
+    loadOrder();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, order]);
 
   return (
     <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] flex flex-col">
@@ -119,9 +204,33 @@ export default function OrderConfirmationPage() {
 
       {/* ── Body ── */}
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8 space-y-6">
-        {!order ? (
+
+        {/* Loading state */}
+        {isFetching && (
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
+            <Loader2 className="w-10 h-10 text-[#82B895] animate-spin" />
+            <p className="text-sm text-[#A8B3AA]">Loading your order…</p>
+          </div>
+        )}
+
+        {/* Fetch error */}
+        {!isFetching && fetchError && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 p-4 bg-rose-950/40 border border-rose-800/60 rounded-xl text-sm text-rose-300"
+          >
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <p>{fetchError}</p>
+          </div>
+        )}
+
+        {/* Order not found */}
+        {!isFetching && !fetchError && !order && (
           <OrderNotFound onBackToMenu={handleBackToMenu} />
-        ) : (
+        )}
+
+        {/* Order details */}
+        {!isFetching && order && (
           <>
             {/* Success hero */}
             <div className="flex flex-col items-center text-center py-6">
@@ -148,8 +257,10 @@ export default function OrderConfirmationPage() {
                   <Hash className="w-3.5 h-3.5" />
                   Order ID
                 </div>
-                <span className="text-lg font-black text-[#E5B86A]">
-                  #{order.id}
+                <span className="text-sm font-black text-[#E5B86A] break-all leading-snug">
+                  {order.id.length > 12
+                    ? `…${order.id.slice(-8)}`
+                    : `#${order.id}`}
                 </span>
               </div>
 
@@ -204,9 +315,14 @@ export default function OrderConfirmationPage() {
                   </li>
                 ))}
               </ul>
-              {/* Total row */}
+              {/* Total row — server-confirmed amount */}
               <div className="px-5 py-4 border-t border-[#326B4B] bg-[#1A1E1C] flex justify-between items-center">
-                <span className="font-bold text-[#F5F5F0]">Total Paid</span>
+                <div>
+                  <span className="font-bold text-[#F5F5F0]">Total Paid</span>
+                  <span className="ml-2 text-[10px] text-[#82B895] font-medium">
+                    (server-confirmed)
+                  </span>
+                </div>
                 <span className="text-xl font-black text-[#E5B86A]">
                   ₹{order.totalAmount.toLocaleString('en-IN')}
                 </span>
@@ -218,7 +334,7 @@ export default function OrderConfirmationPage() {
               <UtensilsCrossed className="w-4 h-4 text-[#82B895] flex-shrink-0 mt-0.5" />
               <p className="text-xs text-[#A8B3AA] leading-relaxed">
                 Your food will be prepared fresh and delivered to{' '}
-                <strong className="text-[#F5F5F0]">Table {order.tableNumber}</strong>. 
+                <strong className="text-[#F5F5F0]">Table {order.tableNumber}</strong>.{' '}
                 No payment required at this step — settle at your convenience with the staff.
               </p>
             </div>
@@ -266,7 +382,7 @@ export default function OrderConfirmationPage() {
         <div className="max-w-3xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>
             <span className="font-bold text-[#F5F5F0]">ServeSync</span> •
-            Order Confirmation • Phase 1
+            Order Confirmation • Commit 5
           </span>
           <span>Table #{tableNumber} Active</span>
         </div>
