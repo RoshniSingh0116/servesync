@@ -382,7 +382,7 @@ export default function OrderConfirmationPage() {
         <div className="max-w-3xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>
             <span className="font-bold text-[#F5F5F0]">ServeSync</span> •
-            Order Confirmation • Commit 5
+            Order Confirmation • Commit 6
           </span>
           <span>Table #{tableNumber} Active</span>
         </div>

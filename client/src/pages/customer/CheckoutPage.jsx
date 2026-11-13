@@ -3,16 +3,19 @@
  * Displays the order summary for the current cart, reads the table number from
  * the URL (?table=X), and places a real order via POST /api/orders.
  *
- * Integration notes (Commit 5):
+ * Integration notes (Commit 6):
  *  - Fetches the food catalog from GET /api/foods to resolve cart item names
- *    to real MongoDB ObjectIds (foodId).  The menu currently reads from mock
- *    data whose `id` values are not ObjectIds, so a name-based lookup is used
- *    as a bridge until Member 1 wires the menu to the backend Food API.
+ *    to real MongoDB ObjectIds (foodId).  Member 1's useFoods hook already sets
+ *    item.id === item._id (the MongoDB ObjectId string), so the id-based fallback
+ *    is the primary path for items added from the live menu.  The name-based
+ *    lookup remains as a secondary path for resilience.
  *  - Prices are NEVER sent to the backend.  Only foodId + quantity are submitted
  *    so the server always prices from MongoDB (server-side price authority).
  *  - After a successful POST the returned order object is passed to the
  *    OrderConfirmationPage via React Router location.state so it survives the
  *    navigation without depending on the in-memory OrderContext.
+ *  - The placed order is also mirrored into OrderContext so the Kitchen Dashboard
+ *    (Member 4) can display it in-session without a backend polling requirement.
  *  - The cart is cleared only after the backend confirms success (201).
  *  - isPlacing is set to true the moment the button is clicked and only reset
  *    on error — navigation away naturally unmounts the spinner.
@@ -32,6 +35,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
+import { useOrders } from '../../context/OrderContext';
 import { placeOrder, getAllFoods } from '../../api/orderApi';
 
 /* ─── Helper ─────────────────────────────────────────────── */
@@ -64,6 +68,7 @@ export default function CheckoutPage() {
   const tableNumber = getTableFromSearch(search);
 
   const { cartItems, total, subtotal, clearCart, cartCount } = useCart();
+  const { addOrder } = useOrders();
 
   const [isPlacing, setIsPlacing] = useState(false);
   const [error, setError] = useState('');
@@ -92,11 +97,11 @@ export default function CheckoutPage() {
 
     try {
       /* ── Step 1: Fetch the food catalog to resolve foodIds ── */
-      // The customer menu is currently served from mockData.js which uses
-      // non-ObjectId ids (e.g. 'item-1').  We bridge this by looking up each
-      // cart item by name in the backend food catalog to find its MongoDB _id.
-      // Once Member 1 feeds the menu from the backend API this lookup becomes
-      // a direct id pass-through (the _id will already be in the cart item).
+      // Member 1's useFoods hook normalises each food document so item.id === item._id
+      // (the MongoDB ObjectId string).  Cart items added from the live menu therefore
+      // already carry a valid ObjectId as `id`, which the id-based fallback picks up.
+      // The name-based lookup is kept as the primary path so items added before the
+      // menu was wired to the backend continue to resolve correctly.
       let foodsById = {};
       try {
         const { foods } = await getAllFoods();
@@ -149,6 +154,28 @@ export default function CheckoutPage() {
           items: resolvedItems,
         });
 
+        /* ── Step 4: Mirror confirmed order into OrderContext ── */
+        // This makes the new order visible in the Kitchen Dashboard (Member 4)
+        // in the same browser session without requiring the KDS to poll the backend.
+        // addOrder() assigns an in-session integer id so KDS handleStatusChange works.
+        // The backend-confirmed data (names, prices, totalAmount) from result.order
+        // is used so the KDS card shows accurate item names and totals.
+        try {
+          addOrder({
+            tableNumber: result.order.tableNumber,
+            items: (result.order.items ?? []).map((item) => ({
+              id: String(item.foodId),
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+            })),
+            totalAmount: result.order.totalAmount,
+            specialInstructions: result.order.specialInstructions ?? null,
+          });
+        } catch {
+          // Mirror failure must not block the checkout success flow
+        }
+
         // Clear cart only after confirmed success
         clearCart();
 
@@ -169,7 +196,7 @@ export default function CheckoutPage() {
       setError(err.message || 'Failed to place order. Please try again.');
       setIsPlacing(false);
     }
-  }, [isPlacing, cartItems, tableNumber, clearCart, navigate]);
+  }, [isPlacing, cartItems, tableNumber, clearCart, navigate, addOrder]);
 
   return (
     <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] flex flex-col">
@@ -360,7 +387,7 @@ export default function CheckoutPage() {
         <div className="max-w-3xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>
             <span className="font-bold text-[#F5F5F0]">ServeSync</span> •
-            Checkout Module • Commit 5
+            Checkout Module • Commit 6
           </span>
           <span>Table #{tableNumber} Active</span>
         </div>
