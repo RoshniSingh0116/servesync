@@ -464,6 +464,12 @@ async function updateFood(req, res) {
     /* ── 7. Persist and return ── */
     const updated = await updateFoodById(id, updates);
 
+    // Guard: if the document was deleted between the existence check and the
+    // update (race condition), updateFoodById returns null.
+    if (!updated) {
+      return res.status(404).json({ error: 'Food item not found.' });
+    }
+
     return res.status(200).json({
       message: 'Food item updated successfully.',
       food: updated,

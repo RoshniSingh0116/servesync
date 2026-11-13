@@ -14,6 +14,7 @@ import { Plus, Check, Star, UtensilsCrossed } from 'lucide-react';
  * @param {string} props.item.category - Category name
  * @param {string} [props.item.image] - Image URL
  * @param {boolean} [props.item.isVeg] - Whether the item is vegetarian
+ * @param {boolean} [props.item.isAvailable] - Whether the item is currently orderable
  * @param {boolean} [props.item.isPopular] - Whether marked as popular/bestseller
  * @param {Function} [props.onAddToCart] - Callback when item is added to cart
  */
@@ -23,7 +24,13 @@ export default function MenuItemCard({ item, onAddToCart }) {
 
   if (!item) return null;
 
+  // Bug fix: treat missing isAvailable as available (matches useFoods normalisation)
+  const isAvailable = item.isAvailable !== false;
+
   const handleAdd = () => {
+    // Guard: never add an unavailable item (defensive — MenuPage also guards)
+    if (!isAvailable) return;
+
     // Trigger visual feedback
     setIsAdded(true);
     setTimeout(() => {
@@ -39,11 +46,15 @@ export default function MenuItemCard({ item, onAddToCart }) {
   return (
     <article
       data-testid={`menu-card-${item.id}`}
-      className="
+      aria-disabled={!isAvailable}
+      className={`
         group relative flex flex-col h-full bg-[#F5F0E6] text-[#202722]
-        rounded-2xl border border-[#DDD8CC] overflow-hidden
-        shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1
-      "
+        rounded-2xl border overflow-hidden
+        shadow-sm transition-all duration-300
+        ${isAvailable
+          ? 'border-[#DDD8CC] hover:shadow-xl hover:-translate-y-1'
+          : 'border-[#C8C2B4] opacity-60 cursor-not-allowed'}
+      `}
     >
       {/* Image Container with Consistent Aspect Ratio */}
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#EAE4D6]">
@@ -90,8 +101,8 @@ export default function MenuItemCard({ item, onAddToCart }) {
             </span>
           </div>
 
-          {/* Popular / Bestseller Badge */}
-          {item.isPopular && (
+          {/* Popular / Bestseller Badge — hidden when unavailable */}
+          {item.isPopular && isAvailable && (
             <span
               className="
                 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold
@@ -100,6 +111,19 @@ export default function MenuItemCard({ item, onAddToCart }) {
             >
               <Star className="w-3 h-3 fill-[#171A19]" />
               Bestseller
+            </span>
+          )}
+
+          {/* Unavailable Badge — shown when isAvailable is false */}
+          {!isAvailable && (
+            <span
+              className="
+                inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold
+                bg-[#2A2A2A]/80 text-[#A8A8A8] shadow-md pointer-events-auto backdrop-blur-sm
+              "
+              aria-label="Currently unavailable"
+            >
+              Unavailable
             </span>
           )}
         </div>
@@ -138,19 +162,27 @@ export default function MenuItemCard({ item, onAddToCart }) {
           <button
             type="button"
             onClick={handleAdd}
-            aria-label={`Add ${item.name} to cart for ₹${item.price}`}
+            disabled={!isAvailable}
+            aria-label={
+              isAvailable
+                ? `Add ${item.name} to cart for ₹${item.price}`
+                : `${item.name} is currently unavailable`
+            }
             className={`
               relative inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl
-              text-xs font-semibold transition-all duration-200 cursor-pointer
+              text-xs font-semibold transition-all duration-200
               focus:outline-none focus:ring-2 focus:ring-[#82B895] focus:ring-offset-2 focus:ring-offset-[#F5F0E6]
-              ${
-                isAdded
-                  ? 'bg-emerald-700 text-white scale-95 shadow-inner'
-                  : 'bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] shadow-sm hover:shadow-md active:scale-95'
+              ${!isAvailable
+                ? 'bg-[#D0CAB8] text-[#A09A8C] cursor-not-allowed'
+                : isAdded
+                  ? 'bg-emerald-700 text-white scale-95 shadow-inner cursor-pointer'
+                  : 'bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] shadow-sm hover:shadow-md active:scale-95 cursor-pointer'
               }
             `}
           >
-            {isAdded ? (
+            {!isAvailable ? (
+              <span>Unavailable</span>
+            ) : isAdded ? (
               <>
                 <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                 <span>Added</span>
