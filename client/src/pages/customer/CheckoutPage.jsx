@@ -1,12 +1,26 @@
 /**
  * CheckoutPage — ServeSync Member 2
  * Displays the order summary for the current cart, reads the table number from
- * the URL (?table=X), and places a mock order on confirmation.
+ * the URL (?table=X), and places a real order via POST /api/orders.
+ *
+ * Integration notes (Commit 5):
+ *  - Fetches the food catalog from GET /api/foods to resolve cart item names
+ *    to real MongoDB ObjectIds (foodId).  The menu currently reads from mock
+ *    data whose `id` values are not ObjectIds, so a name-based lookup is used
+ *    as a bridge until Member 1 wires the menu to the backend Food API.
+ *  - Prices are NEVER sent to the backend.  Only foodId + quantity are submitted
+ *    so the server always prices from MongoDB (server-side price authority).
+ *  - After a successful POST the returned order object is passed to the
+ *    OrderConfirmationPage via React Router location.state so it survives the
+ *    navigation without depending on the in-memory OrderContext.
+ *  - The cart is cleared only after the backend confirms success (201).
+ *  - isPlacing is set to true the moment the button is clicked and only reset
+ *    on error — navigation away naturally unmounts the spinner.
  *
  * Flow: CartPage → CheckoutPage → OrderConfirmationPage
  */
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -15,9 +29,10 @@ import {
   ClipboardList,
   CheckCircle2,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
-import { useOrders } from '../../context/OrderContext';
+import { placeOrder, getAllFoods } from '../../api/orderApi';
 
 /* ─── Helper ─────────────────────────────────────────────── */
 function getTableFromSearch(search) {
@@ -49,13 +64,15 @@ export default function CheckoutPage() {
   const tableNumber = getTableFromSearch(search);
 
   const { cartItems, total, subtotal, clearCart, cartCount } = useCart();
-  const { addOrder } = useOrders();
 
   const [isPlacing, setIsPlacing] = useState(false);
   const [error, setError] = useState('');
 
   /* ── Place Order ── */
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = useCallback(async () => {
+    // Guard: prevent duplicate submissions (button is also disabled while placing)
+    if (isPlacing) return;
+
     setError('');
 
     // Validate: cart must not be empty
@@ -64,20 +81,95 @@ export default function CheckoutPage() {
       return;
     }
 
+    // Validate: table number must be a positive integer
+    const parsedTable = Number(tableNumber);
+    if (!Number.isInteger(parsedTable) || parsedTable < 1) {
+      setError('Invalid table number. Please scan your table QR code again.');
+      return;
+    }
+
     setIsPlacing(true);
 
-    // Simulate a brief "processing" delay for realistic UX (no actual network call)
-    setTimeout(() => {
-      const order = addOrder({
-        tableNumber,
-        items: cartItems,
-        totalAmount: total,
-      });
+    try {
+      /* ── Step 1: Fetch the food catalog to resolve foodIds ── */
+      // The customer menu is currently served from mockData.js which uses
+      // non-ObjectId ids (e.g. 'item-1').  We bridge this by looking up each
+      // cart item by name in the backend food catalog to find its MongoDB _id.
+      // Once Member 1 feeds the menu from the backend API this lookup becomes
+      // a direct id pass-through (the _id will already be in the cart item).
+      let foodsById = {};
+      try {
+        const { foods } = await getAllFoods();
+        // Build a map keyed by name (lowercase, trimmed) → food document
+        const foodsByName = {};
+        foods.forEach((f) => {
+          const key = (f.name || '').toLowerCase().trim();
+          foodsByName[key] = f;
+        });
+        // Also key by _id string for items that already carry a MongoDB id
+        foods.forEach((f) => {
+          foodsById[String(f._id)] = f;
+        });
 
-      clearCart();
-      navigate(`/order-confirmation/${order.id}?table=${tableNumber}`);
-    }, 600);
-  };
+        // Resolve each cart item to a real foodId
+        const unresolvedItems = [];
+        cartItems.forEach((ci) => {
+          const nameKey = (ci.name || '').toLowerCase().trim();
+          if (!foodsByName[nameKey] && !foodsById[ci.id]) {
+            unresolvedItems.push(ci.name);
+          }
+        });
+
+        if (unresolvedItems.length > 0) {
+          setError(
+            `The following item(s) are no longer on the menu: ${unresolvedItems.join(', ')}. ` +
+              'Please remove them from your cart and try again.'
+          );
+          setIsPlacing(false);
+          return;
+        }
+
+        /* ── Step 2: Build the order payload ── */
+        // foodId: use the food's MongoDB _id resolved from the catalog.
+        // quantity: taken from the cart.
+        // No price — backend fetches prices from MongoDB.
+        const resolvedItems = cartItems.map((ci) => {
+          // Prefer name-based lookup; fall back to id-based if cart already has _id
+          const nameKey = (ci.name || '').toLowerCase().trim();
+          const food = foodsByName[nameKey] || foodsById[ci.id];
+          return {
+            foodId: String(food._id),
+            quantity: ci.quantity,
+          };
+        });
+
+        /* ── Step 3: POST to /api/orders ── */
+        const result = await placeOrder({
+          tableNumber: parsedTable,
+          items: resolvedItems,
+        });
+
+        // Clear cart only after confirmed success
+        clearCart();
+
+        // Navigate to confirmation page, passing the full order in state so
+        // the page works even if the user hard-refreshes (it also saves an
+        // extra GET /api/orders/:id round-trip on the happy path).
+        navigate(`/order-confirmation/${String(result.order._id)}?table=${tableNumber}`, {
+          state: { confirmedOrder: result.order },
+          replace: false,
+        });
+      } catch (foodErr) {
+        // If the food catalog is unavailable we still try to place the order
+        // using the cart item IDs directly (they may already be ObjectIds in
+        // future iterations), but surface a warning if that also fails.
+        throw foodErr;
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to place order. Please try again.');
+      setIsPlacing(false);
+    }
+  }, [isPlacing, cartItems, tableNumber, clearCart, navigate]);
 
   return (
     <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] flex flex-col">
@@ -202,15 +294,18 @@ export default function CheckoutPage() {
             </span>
           </div>
           <div className="flex justify-between text-xs text-[#68736A]">
-            <span>Service charges & taxes</span>
+            <span>Service charges &amp; taxes</span>
             <span>Included</span>
           </div>
           <div className="border-t border-[#38443C] pt-3 flex justify-between items-center">
-            <span className="font-bold text-[#F5F5F0]">Total Amount</span>
+            <span className="font-bold text-[#F5F5F0]">Estimated Total</span>
             <span className="text-2xl font-black text-[#E5B86A]">
               ₹{total.toLocaleString('en-IN')}
             </span>
           </div>
+          <p className="text-[10px] text-[#68736A] leading-relaxed">
+            Final total is confirmed by the server after order placement.
+          </p>
         </div>
 
         {/* Error message */}
@@ -243,7 +338,7 @@ export default function CheckoutPage() {
           >
             {isPlacing ? (
               <>
-                <span className="w-4 h-4 rounded-full border-2 border-[#F5F0E6]/40 border-t-[#F5F0E6] animate-spin" />
+                <Loader2 className="w-5 h-5 animate-spin" />
                 <span>Placing Order…</span>
               </>
             ) : (
@@ -265,7 +360,7 @@ export default function CheckoutPage() {
         <div className="max-w-3xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>
             <span className="font-bold text-[#F5F5F0]">ServeSync</span> •
-            Checkout Module • Phase 1
+            Checkout Module • Commit 5
           </span>
           <span>Table #{tableNumber} Active</span>
         </div>

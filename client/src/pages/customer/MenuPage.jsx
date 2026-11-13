@@ -14,15 +14,15 @@ import {
   CheckCircle2,
   ChefHat,
   Shield,
+  Loader2,
+  AlertTriangle,
+  UtensilsCrossed,
 } from 'lucide-react';
 import CategoryTabs from '../../components/customer/CategoryTabs';
 import MenuItemCard from '../../components/customer/MenuItemCard';
 import { useCart } from '../../context/CartContext';
-import {
-  MENU_ITEMS,
-  CATEGORIES,
-  RESTAURANT_INFO,
-} from '../../mocks/mockData';
+import { RESTAURANT_INFO } from '../../mocks/mockData';
+import { useFoods } from '../../hooks/useFoods';
 
 /**
  * Helper to safely extract table number from URL query parameter (?table=X)
@@ -42,6 +42,7 @@ function getTableNumberFromUrl() {
 /**
  * MenuPage Component
  * Primary customer menu view for table ordering (Member 1).
+ * Fetches food items from GET /api/foods via the useFoods hook.
  *
  * @param {Object} props
  * @param {Function} [props.onAddToCart] - Optional external callback from shared CartContext (for Member 2)
@@ -50,15 +51,18 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
   const navigate = useNavigate();
   const { addToCart, cartCount } = useCart();
 
-  // 1. Table Number State (from URL ?table=X or default)
+  // 1. Fetch food items from the backend API
+  const { foods, loading, error, refetch } = useFoods();
+
+  // 2. Table Number State (from URL ?table=X or default)
   const [tableNumber, setTableNumber] = useState(getTableNumberFromUrl);
 
-  // 2. Search & Category Filter State
+  // 3. Search & Category Filter State
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [vegOnly, setVegOnly] = useState(false);
 
-  // 3. Local Feedback State
+  // 4. Local Feedback State
   const [toastMessage, setToastMessage] = useState(null);
 
   // Listen for query changes if URL changes dynamically
@@ -70,24 +74,37 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
     return () => window.removeEventListener('popstate', handleLocationChange);
   }, []);
 
+  // Reset category to 'All' when foods reload (e.g. after refetch) so the
+  // user never lands on a category tab that has 0 items due to stale state.
+  useEffect(() => {
+    setSelectedCategory('All');
+  }, [foods]);
+
   const totalCartCount = cartCount;
 
-  // Compute dynamic category counts from the full menu (never hardcoded, never inaccurate)
+  // Derive the unique category list from actual API data, always starting with 'All'
+  const categories = useMemo(() => {
+    if (foods.length === 0) return ['All'];
+    const unique = [...new Set(foods.map((item) => item.category))].sort();
+    return ['All', ...unique];
+  }, [foods]);
+
+  // Compute dynamic category counts from the fetched foods (never hardcoded)
   const categoryCounts = useMemo(() => {
-    const counts = { All: MENU_ITEMS.length };
-    CATEGORIES.forEach((cat) => {
+    const counts = { All: foods.length };
+    categories.forEach((cat) => {
       if (cat !== 'All') {
-        counts[cat] = MENU_ITEMS.filter((item) => item.category === cat).length;
+        counts[cat] = foods.filter((item) => item.category === cat).length;
       }
     });
     return counts;
-  }, []);
+  }, [foods, categories]);
 
   // Filtered menu items based on Search, Category, and Veg-only toggle
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    return MENU_ITEMS.filter((item) => {
+    return foods.filter((item) => {
       // Category match
       const matchesCategory =
         selectedCategory === 'All' || item.category === selectedCategory;
@@ -103,10 +120,13 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
 
       return matchesCategory && matchesSearch && matchesVeg;
     });
-  }, [searchQuery, selectedCategory, vegOnly]);
+  }, [foods, searchQuery, selectedCategory, vegOnly]);
 
   // Handle Add to Cart action
   const handleAddToCart = (item) => {
+    // Guard: do not add unavailable items
+    if (item.isAvailable === false) return;
+
     // 1. Add to shared CartContext
     if (typeof addToCart === 'function') {
       addToCart(item);
@@ -384,16 +404,16 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
               {/* Results Count indicator */}
               <div className="text-xs text-[#A8B3AA] px-2 py-1">
                 <span className="font-bold text-[#F5F5F0]">
-                  {filteredItems.length}
+                  {loading ? '—' : filteredItems.length}
                 </span>{' '}
                 {filteredItems.length === 1 ? 'dish' : 'dishes'}
               </div>
             </div>
           </div>
 
-          {/* Category Tabs */}
+          {/* Category Tabs — driven by actual API data */}
           <CategoryTabs
-            categories={CATEGORIES}
+            categories={categories}
             activeCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
             itemCounts={categoryCounts}
@@ -402,75 +422,37 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
       </section>
 
       {/* ─────────────────────────────────────────────────────────────
-          E. MAIN FOOD GRID & EMPTY STATES
+          E. MAIN FOOD GRID, LOADING, ERROR & EMPTY STATES
       ───────────────────────────────────────────────────────────── */}
       <main
         id="menu-items-grid"
         className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"
       >
-        {/* Active Filters Summary (if any filter is applied) */}
-        {(searchQuery || selectedCategory !== 'All' || vegOnly) && (
-          <div className="flex items-center justify-between flex-wrap gap-2 mb-6 pb-3 border-b border-[#38443C]">
-            <div className="flex items-center gap-2 text-xs text-[#A8B3AA]">
-              <span>Active filters:</span>
-              {selectedCategory !== 'All' && (
-                <span className="px-2.5 py-1 rounded-md bg-[#222825] border border-[#38443C] text-[#F5F5F0] font-medium">
-                  {selectedCategory}
-                </span>
-              )}
-              {vegOnly && (
-                <span className="px-2.5 py-1 rounded-md bg-emerald-950/60 border border-emerald-700/60 text-emerald-300 font-medium">
-                  Veg Only
-                </span>
-              )}
-              {searchQuery && (
-                <span className="px-2.5 py-1 rounded-md bg-[#222825] border border-[#38443C] text-[#E5B86A] font-medium">
-                  "{searchQuery}"
-                </span>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="inline-flex items-center gap-1.5 text-xs text-[#E5B86A] hover:underline cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#82B895] rounded px-1"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Reset all filters
-            </button>
+        {/* ── LOADING STATE ── */}
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <Loader2 className="w-10 h-10 text-[#82B895] animate-spin mb-4" />
+            <p className="text-sm text-[#A8B3AA] font-medium">
+              Loading the menu…
+            </p>
           </div>
         )}
 
-        {/* Items Grid */}
-        {filteredItems.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredItems.map((item) => (
-              <MenuItemCard
-                key={item.id}
-                item={item}
-                onAddToCart={handleAddToCart}
-              />
-            ))}
-          </div>
-        ) : (
-          /* Empty Search / Filter State */
-          <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-[#38443C] my-8">
-            <div className="w-16 h-16 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center text-[#A8B3AA] mb-4">
-              <Search className="w-8 h-8 opacity-40 text-[#E5B86A]" />
+        {/* ── ERROR STATE ── */}
+        {!loading && error && (
+          <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-rose-800/40 my-8">
+            <div className="w-16 h-16 rounded-2xl bg-[#171A19] border border-rose-700/40 flex items-center justify-center mb-4">
+              <AlertTriangle className="w-8 h-8 text-rose-400 opacity-80" />
             </div>
             <h3 className="text-xl font-bold text-[#F5F5F0] mb-2">
-              No culinary matches found
+              Unable to load the menu
             </h3>
             <p className="text-sm text-[#A8B3AA] max-w-md mb-6 leading-relaxed">
-              We couldn't find any dishes matching your current selection{' '}
-              {searchQuery && (
-                <span className="text-[#E5B86A]">"{searchQuery}"</span>
-              )}
-              . Try adjusting your search term or exploring another category.
+              {error}
             </p>
             <button
               type="button"
-              onClick={handleResetFilters}
+              onClick={refetch}
               className="
                 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
                 bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-sm font-semibold
@@ -479,9 +461,123 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
               "
             >
               <RotateCcw className="w-4 h-4" />
-              View Full Menu
+              Try Again
             </button>
           </div>
+        )}
+
+        {/* ── CONTENT (foods loaded, no error) ── */}
+        {!loading && !error && (
+          <>
+            {/* Active Filters Summary (if any filter is applied) */}
+            {(searchQuery || selectedCategory !== 'All' || vegOnly) && (
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-6 pb-3 border-b border-[#38443C]">
+                <div className="flex items-center gap-2 text-xs text-[#A8B3AA]">
+                  <span>Active filters:</span>
+                  {selectedCategory !== 'All' && (
+                    <span className="px-2.5 py-1 rounded-md bg-[#222825] border border-[#38443C] text-[#F5F5F0] font-medium">
+                      {selectedCategory}
+                    </span>
+                  )}
+                  {vegOnly && (
+                    <span className="px-2.5 py-1 rounded-md bg-emerald-950/60 border border-emerald-700/60 text-emerald-300 font-medium">
+                      Veg Only
+                    </span>
+                  )}
+                  {searchQuery && (
+                    <span className="px-2.5 py-1 rounded-md bg-[#222825] border border-[#38443C] text-[#E5B86A] font-medium">
+                      "{searchQuery}"
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="inline-flex items-center gap-1.5 text-xs text-[#E5B86A] hover:underline cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#82B895] rounded px-1"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reset all filters
+                </button>
+              </div>
+            )}
+
+            {/* ── EMPTY STATE: API returned zero foods ── */}
+            {foods.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-[#38443C] my-8">
+                <div className="w-16 h-16 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center text-[#A8B3AA] mb-4">
+                  <UtensilsCrossed className="w-8 h-8 opacity-40 text-[#E5B86A]" />
+                </div>
+                <h3 className="text-xl font-bold text-[#F5F5F0] mb-2">
+                  Menu is currently empty
+                </h3>
+                <p className="text-sm text-[#A8B3AA] max-w-md mb-6 leading-relaxed">
+                  No food items are available right now. Please check back soon
+                  or ask a staff member for assistance.
+                </p>
+                <button
+                  type="button"
+                  onClick={refetch}
+                  className="
+                    inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+                    bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-sm font-semibold
+                    border border-[#326B4B] transition-colors cursor-pointer
+                    focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                  "
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Refresh
+                </button>
+              </div>
+            )}
+
+            {/* ── ITEMS GRID ── */}
+            {foods.length > 0 && filteredItems.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredItems.map((item) => (
+                  <MenuItemCard
+                    key={item.id}
+                    item={item}
+                    onAddToCart={handleAddToCart}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* ── NO FILTER MATCH (foods exist but filters yield nothing) ── */}
+            {foods.length > 0 && filteredItems.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-[#38443C] my-8">
+                <div className="w-16 h-16 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center text-[#A8B3AA] mb-4">
+                  <Search className="w-8 h-8 opacity-40 text-[#E5B86A]" />
+                </div>
+                <h3 className="text-xl font-bold text-[#F5F5F0] mb-2">
+                  No culinary matches found
+                </h3>
+                <p className="text-sm text-[#A8B3AA] max-w-md mb-6 leading-relaxed">
+                  We couldn&apos;t find any dishes matching your current
+                  selection{' '}
+                  {searchQuery && (
+                    <span className="text-[#E5B86A]">&quot;{searchQuery}&quot;</span>
+                  )}
+                  . Try adjusting your search term or exploring another
+                  category.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="
+                    inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+                    bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-sm font-semibold
+                    border border-[#326B4B] transition-colors cursor-pointer
+                    focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                  "
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  View Full Menu
+                </button>
+              </div>
+            )}
+          </>
         )}
       </main>
 
