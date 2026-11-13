@@ -1,48 +1,61 @@
 /**
  * AdminLoginPage.jsx
- * ServeSync — Admin Dashboard (Member 3)
+ * ServeSync — Admin Dashboard (Member 3, Commit 5)
  *
- * Frontend-only demo login screen.
- * No real authentication is performed. This is a UI/UX demo flow.
+ * Admin login screen connected to POST /api/admin/login.
+ * Authenticates against the backend, handles invalid credentials,
+ * displays meaningful error messages, stores the session token safely,
+ * and guards against password exposure in logs.
  */
 
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Utensils, LogIn, AlertCircle, ShieldCheck } from 'lucide-react';
-
-// Demo credentials — clearly mock, no real auth
-const DEMO_EMAIL = 'admin@servesync.com';
-const DEMO_PASSWORD = 'admin123';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Eye, EyeOff, Utensils, LogIn, AlertCircle, ShieldCheck, Info } from 'lucide-react';
+import { adminLogin, setAdminSession, isAdminAuthenticated } from '../../services/adminApi';
 
 export default function AdminLoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
   const [loginError, setLoginError] = useState('');
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  /** Validate fields, return error map */
+  // If already logged in, redirect to dashboard
+  useEffect(() => {
+    if (isAdminAuthenticated()) {
+      navigate('/admin/dashboard', { replace: true });
+    }
+  }, [navigate]);
+
+  // Check if redirected due to expired session
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('expired') === '1') {
+      setSessionExpiredNotice(true);
+    }
+  }, [location.search]);
+
+  /** Validate form inputs */
   function validate() {
     const errs = {};
-    if (!email.trim()) {
-      errs.email = 'Email is required.';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      errs.email = 'Enter a valid email address.';
+    if (!username.trim()) {
+      errs.username = 'Username or email is required.';
     }
     if (!password) {
       errs.password = 'Password is required.';
-    } else if (password.length < 4) {
-      errs.password = 'Password must be at least 4 characters.';
     }
     return errs;
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setLoginError('');
+    setSessionExpiredNotice(false);
 
     const errs = validate();
     if (Object.keys(errs).length > 0) {
@@ -51,34 +64,44 @@ export default function AdminLoginPage() {
     }
     setErrors({});
 
-    // Simulate async check
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      if (
-        email.trim().toLowerCase() === DEMO_EMAIL &&
-        password === DEMO_PASSWORD
-      ) {
-        navigate('/admin/dashboard');
+
+    try {
+      // Connect to backend POST /api/admin/login via adminApi
+      const data = await adminLogin(username.trim(), password);
+
+      // Store authentication token and admin details according to implementation
+      if (data?.token) {
+        setAdminSession(data.token, data.admin);
+
+        // Redirect to intended destination or dashboard
+        const destination = location.state?.from?.pathname || '/admin/dashboard';
+        navigate(destination, { replace: true });
       } else {
-        setLoginError(
-          'Invalid credentials. Use admin@servesync.com / admin123 for demo.'
-        );
+        setLoginError('Authentication succeeded but no token was returned.');
       }
-    }, 800);
+    } catch (err) {
+      // Meaningful error message extracted by Axios interceptor
+      const message =
+        err.message ||
+        (err.status === 401
+          ? 'Invalid username or password.'
+          : 'Failed to sign in. Please check your connection and try again.');
+      setLoginError(message);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   function handleFieldChange(field, value) {
-    if (field === 'email') setEmail(value);
+    if (field === 'username') setUsername(value);
     if (field === 'password') setPassword(value);
-    // Clear the per-field error as user types
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: '' }));
     if (loginError) setLoginError('');
   }
 
   return (
     <div className="min-h-screen bg-[#171A19] flex flex-col items-center justify-center px-4 py-12 selection:bg-[#24543A] selection:text-[#F5F0E6]">
-      {/* Card */}
       <div className="w-full max-w-md">
         {/* Brand Header */}
         <div className="flex flex-col items-center mb-8">
@@ -100,19 +123,31 @@ export default function AdminLoginPage() {
               Sign in to Dashboard
             </h2>
             <p className="text-sm text-[#A8B3AA]">
-              Manage your restaurant menu and items.
+              Enter your credentials to access the admin portal.
             </p>
           </div>
+
+          {/* Session Expired Notice */}
+          {sessionExpiredNotice && (
+            <div
+              role="alert"
+              className="flex items-start gap-2.5 mb-5 p-3 rounded-xl bg-amber-950/40 border border-amber-600/60"
+            >
+              <Info className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-amber-200 leading-relaxed">
+                Your session has expired. Please sign in again to continue.
+              </p>
+            </div>
+          )}
 
           {/* Demo Credentials Notice */}
           <div className="flex items-start gap-2.5 mb-5 p-3 rounded-xl bg-[#24543A]/20 border border-[#326B4B]/60">
             <ShieldCheck className="w-4 h-4 text-[#82B895] mt-0.5 shrink-0" />
             <p className="text-xs text-[#A8B3AA] leading-relaxed">
-              <span className="font-semibold text-[#82B895]">Demo Mode — </span>
-              Use{' '}
-              <span className="font-mono text-[#F5F5F0]">admin@servesync.com</span>{' '}
-              and password{' '}
-              <span className="font-mono text-[#F5F5F0]">admin123</span>.
+              <span className="font-semibold text-[#82B895]">Default Credentials — </span>
+              Username: <span className="font-mono text-[#F5F5F0]">admin</span> (or{' '}
+              <span className="font-mono text-[#F5F5F0]">admin@servesync.com</span>) · Password:{' '}
+              <span className="font-mono text-[#F5F5F0]">admin123</span>
             </p>
           </div>
 
@@ -128,39 +163,39 @@ export default function AdminLoginPage() {
               </div>
             )}
 
-            {/* Email Field */}
+            {/* Username or Email Field */}
             <div className="mb-4">
               <label
-                htmlFor="admin-email"
+                htmlFor="admin-username"
                 className="block text-sm font-semibold text-[#F5F5F0] mb-1.5"
               >
-                Email address
+                Username or Email
                 <span className="text-rose-400 ml-1" aria-hidden="true">*</span>
               </label>
               <input
-                id="admin-email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => handleFieldChange('email', e.target.value)}
-                placeholder="admin@servesync.com"
-                aria-describedby={errors.email ? 'email-error' : undefined}
-                aria-invalid={!!errors.email}
+                id="admin-username"
+                type="text"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => handleFieldChange('username', e.target.value)}
+                placeholder="admin or admin@servesync.com"
+                aria-describedby={errors.username ? 'username-error' : undefined}
+                aria-invalid={!!errors.username}
                 className={`
                   w-full px-4 py-3 rounded-xl bg-[#171A19] border text-sm text-[#F5F5F0]
                   placeholder-[#A8B3AA] transition-colors
                   focus:outline-none focus:ring-2 focus:ring-[#82B895]/50
                   ${
-                    errors.email
+                    errors.username
                       ? 'border-rose-600 focus:border-rose-500'
                       : 'border-[#38443C] focus:border-[#82B895]'
                   }
                 `}
               />
-              {errors.email && (
-                <p id="email-error" role="alert" className="mt-1.5 text-xs text-rose-400 flex items-center gap-1">
+              {errors.username && (
+                <p id="username-error" role="alert" className="mt-1.5 text-xs text-rose-400 flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" />
-                  {errors.email}
+                  {errors.username}
                 </p>
               )}
             </div>
@@ -248,7 +283,7 @@ export default function AdminLoginPage() {
 
         {/* Footer note */}
         <p className="text-center text-xs text-[#A8B3AA] mt-6">
-          ServeSync Admin — Member 3 · Frontend Demo
+          ServeSync Admin · Member 3 · Connected to Backend API
         </p>
       </div>
     </div>

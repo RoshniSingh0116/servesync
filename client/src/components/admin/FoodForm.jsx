@@ -1,17 +1,24 @@
 /**
  * FoodForm.jsx
- * ServeSync — Admin Dashboard (Member 3)
+ * ServeSync — Admin Dashboard (Member 3, Commit 5)
  *
  * Reusable controlled form for adding or editing a food item.
- * Used by both AddFoodPage and inline editing in FoodTable.
+ * Used by both AddFoodPage and modal editing in FoodTable.
+ * Connected to backend validation rules with loading states and error feedback.
  */
 
 import { useState } from 'react';
 import { X, AlertCircle, Save, UtensilsCrossed } from 'lucide-react';
-import { CATEGORIES } from '../../mocks/mockData';
 
-// All non-"All" categories from the shared mock data
-const FOOD_CATEGORIES = CATEGORIES.filter((c) => c !== 'All');
+// Categories matching server VALID_CATEGORIES
+export const FOOD_CATEGORIES = [
+  'Starters',
+  'Main Course',
+  'Pizza',
+  'Burgers',
+  'Desserts',
+  'Drinks',
+];
 
 const EMPTY_FORM = {
   name: '',
@@ -29,10 +36,11 @@ const EMPTY_FORM = {
  *
  * @param {Object} props
  * @param {Object|null}  props.initialData   - Pre-filled data when editing; null for add
- * @param {Function}     props.onSave        - Called with the validated form object
+ * @param {Function}     props.onSave        - Async or sync callback (validatedData) => Promise<void>|void
  * @param {Function}     [props.onCancel]    - Called when the user cancels
  * @param {boolean}      [props.isModal]     - Render with modal chrome (header + close btn)
  * @param {string}       [props.title]       - Override title shown in modal header
+ * @param {string}       [props.serverError] - External error message to display
  */
 export default function FoodForm({
   initialData = null,
@@ -40,10 +48,13 @@ export default function FoodForm({
   onCancel,
   isModal = false,
   title,
+  serverError = '',
 }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...(initialData || {}) });
   const [errors, setErrors] = useState({});
   const [imagePreviewError, setImagePreviewError] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   function validate() {
     const errs = {};
@@ -62,26 +73,56 @@ export default function FoodForm({
   function handleChange(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: '' }));
+    if (submitError) setSubmitError('');
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
+    setSubmitError('');
+
     const errs = validate();
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
       return;
     }
-    onSave({
+
+    const payload = {
       ...form,
       name: form.name.trim(),
       description: form.description.trim(),
       price: parseFloat(form.price),
-      image: form.image.trim(),
-    });
+      image: form.image ? form.image.trim() : '',
+    };
+
+    try {
+      setIsSubmitting(true);
+      if (typeof onSave === 'function') {
+        await onSave(payload);
+      }
+    } catch (err) {
+      setSubmitError(err.message || 'Failed to save food item. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   }
+
+  const activeError = submitError || serverError;
 
   const formContent = (
     <form onSubmit={handleSubmit} noValidate>
+      {/* API / Submit Error Banner */}
+      {activeError && (
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 mb-5 p-3.5 rounded-xl bg-rose-950/40 border border-rose-700/60"
+        >
+          <AlertCircle className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
+          <p className="text-xs text-rose-300 leading-relaxed font-medium">
+            {activeError}
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Food Name */}
         <div className="sm:col-span-2">
@@ -191,7 +232,7 @@ export default function FoodForm({
           {form.image && imagePreviewError && (
             <p className="mt-1.5 text-xs text-amber-400 flex items-center gap-1">
               <AlertCircle className="w-3 h-3" />
-              Could not load preview — URL may be invalid.
+              Could not load preview — check if image URL is valid.
             </p>
           )}
         </div>
@@ -238,18 +279,29 @@ export default function FoodForm({
         {onCancel && (
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={onCancel}
-            className="px-5 py-2.5 rounded-xl text-sm font-semibold text-[#A8B3AA] bg-[#171A19] border border-[#38443C] hover:text-[#F5F5F0] hover:border-[#82B895]/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold text-[#A8B3AA] bg-[#171A19] border border-[#38443C] hover:text-[#F5F5F0] hover:border-[#82B895]/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895] disabled:opacity-50"
           >
             Cancel
           </button>
         )}
         <button
           type="submit"
-          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold bg-[#24543A] hover:bg-[#326B4B] active:scale-[0.98] text-[#F5F0E6] border border-[#326B4B] transition-all duration-150 cursor-pointer shadow-md hover:shadow-lg shadow-[#24543A]/20 focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+          disabled={isSubmitting}
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold bg-[#24543A] hover:bg-[#326B4B] active:scale-[0.98] text-[#F5F0E6] border border-[#326B4B] transition-all duration-150 cursor-pointer shadow-md hover:shadow-lg shadow-[#24543A]/20 focus:outline-none focus:ring-2 focus:ring-[#82B895] disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          <Save className="w-4 h-4" />
-          {initialData ? 'Save Changes' : 'Add Item'}
+          {isSubmitting ? (
+            <>
+              <span className="w-4 h-4 border-2 border-[#F5F0E6] border-t-transparent rounded-full animate-spin" />
+              <span>Saving…</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4" />
+              <span>{initialData ? 'Save Changes' : 'Add Item'}</span>
+            </>
+          )}
         </button>
       </div>
     </form>
@@ -278,6 +330,7 @@ export default function FoodForm({
           {onCancel && (
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={onCancel}
               aria-label="Close form"
               className="text-[#A8B3AA] hover:text-[#F5F5F0] p-1.5 rounded-lg hover:bg-[#171A19] cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-[#82B895]"

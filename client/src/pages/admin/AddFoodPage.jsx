@@ -1,10 +1,10 @@
 /**
  * AddFoodPage.jsx
- * ServeSync — Admin Dashboard (Member 3)
+ * ServeSync — Admin Dashboard (Member 3, Commit 5)
  *
  * Standalone page for adding a new food item.
- * Wraps the shared FoodForm component in a full-page layout
- * consistent with the Admin Dashboard design language.
+ * Connected to POST /api/foods via adminApi service.
+ * Displays validation messages, loading state, and success feedback.
  *
  * Route: /admin/add-food
  */
@@ -17,35 +17,33 @@ import {
   UtensilsCrossed,
   CheckCircle2,
   Plus,
+  AlertCircle,
 } from 'lucide-react';
 import FoodForm from '../../components/admin/FoodForm';
-import { MENU_ITEMS } from '../../mocks/mockData';
-
-/** Shared in-memory item store (same seed as AdminDashboardPage) */
-const seedItems = MENU_ITEMS.map((item) => ({
-  ...item,
-  isAvailable: item.isAvailable !== undefined ? item.isAvailable : true,
-}));
-
-let nextId = seedItems.length + 500; // offset so IDs don't collide with dashboard counter
-function generateId() {
-  return `add-page-${nextId++}`;
-}
+import { addFoodItem } from '../../services/adminApi';
 
 export default function AddFoodPage() {
   const navigate = useNavigate();
   const [saved, setSaved] = useState(false);
   const [savedItem, setSavedItem] = useState(null);
+  const [serverError, setServerError] = useState('');
 
-  function handleSave(formData) {
-    const newItem = { ...formData, id: generateId() };
-    setSavedItem(newItem);
-    setSaved(true);
+  async function handleSave(formData) {
+    setServerError('');
+    try {
+      const response = await addFoodItem(formData);
+      setSavedItem(response?.food || formData);
+      setSaved(true);
+    } catch (err) {
+      setServerError(err.message || 'Failed to add food item. Please check inputs and try again.');
+      throw err; // Let FoodForm handle button state
+    }
   }
 
   function handleAddAnother() {
     setSaved(false);
     setSavedItem(null);
+    setServerError('');
   }
 
   function handleGoToDashboard() {
@@ -110,12 +108,25 @@ export default function AddFoodPage() {
                   <h2 className="text-2xl font-black text-[#F5F5F0] leading-none">
                     Add Food Item
                   </h2>
-                  <p className="text-sm text-[#A8B3AA] mt-0.5">
-                    Fill in the details below to add a new dish to the menu.
+                  <p className="text-sm text-[#A8B3AA] mt-1">
+                    Fill in the details below to add a new dish to the live MongoDB menu.
                   </p>
                 </div>
               </div>
             </div>
+
+            {/* Error Banner if any */}
+            {serverError && (
+              <div
+                role="alert"
+                className="flex items-start gap-2.5 mb-5 p-3.5 rounded-xl bg-rose-950/40 border border-rose-700/60"
+              >
+                <AlertCircle className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-rose-300 leading-relaxed font-medium">
+                  {serverError}
+                </p>
+              </div>
+            )}
 
             {/* Form card */}
             <div className="bg-[#222825] border border-[#38443C] rounded-2xl p-6 sm:p-8 shadow-xl">
@@ -124,6 +135,7 @@ export default function AddFoodPage() {
                 onSave={handleSave}
                 onCancel={handleGoToDashboard}
                 isModal={false}
+                serverError={serverError}
               />
             </div>
           </>
@@ -135,7 +147,7 @@ export default function AddFoodPage() {
         <span>
           <span className="font-semibold text-[#F5F5F0]">ServeSync</span> · Add Food · Member 3
         </span>
-        <span className="text-[#E5B86A]">Frontend Demo</span>
+        <span className="text-[#82B895]">Backend Integrated</span>
       </footer>
     </div>
   );
@@ -153,9 +165,9 @@ function SuccessState({ item, onAddAnother, onGoToDashboard }) {
       <h2 className="text-2xl font-black text-[#F5F5F0] mb-2">
         Item Added Successfully!
       </h2>
-      <p className="text-sm text-[#A8B3AA] max-w-xs mb-2">
+      <p className="text-sm text-[#A8B3AA] max-w-sm mb-2">
         <span className="font-semibold text-[#F5F5F0]">"{item.name}"</span> has been
-        added to the menu.
+        persisted to MongoDB and is live on the menu.
       </p>
 
       {/* Quick summary */}

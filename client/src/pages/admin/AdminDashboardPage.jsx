@@ -1,15 +1,20 @@
 /**
  * AdminDashboardPage.jsx
- * ServeSync — Admin Dashboard (Member 3)
+ * ServeSync — Admin Dashboard (Member 3, Commit 5)
  *
- * Main admin screen with:
- *  - Collapsible sidebar navigation (desktop fixed | mobile overlay)
- *  - Overview stat cards (food items + order summary from OrderContext)
- *  - Food management section (FoodTable + FoodForm modal)
- *  - Orders overview section (read-only, links to Kitchen KDS)
+ * Fully integrated Admin Dashboard connected to:
+ *  - GET  /api/admin/dashboard  (overview summary statistics)
+ *  - GET  /api/admin/foods      (menu food items)
+ *  - POST /api/foods            (add food item)
+ *  - PUT  /api/foods/:id        (edit food item & toggle availability)
+ *  - DELETE /api/foods/:id     (remove food item)
+ *  - GET  /api/admin/orders     (orders overview list)
+ *
+ * Implements authentication guard, loading indicators, error handling,
+ * empty state management, and real-time dashboard refreshes.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -31,27 +36,24 @@ import {
   CheckCheck,
   Flame,
   Bell,
+  RefreshCw,
+  AlertCircle,
+  Search,
+  SlidersHorizontal,
   ExternalLink,
 } from 'lucide-react';
-import { MENU_ITEMS } from '../../mocks/mockData';
-import { useOrders } from '../../context/OrderContext';
 import FoodTable from '../../components/admin/FoodTable';
 import FoodForm from '../../components/admin/FoodForm';
-
-/* ───────────────────────────────────────────────────────────────────────
-   Seed the admin state from mockData.
-   We add `isAvailable: true` to every imported item since the customer
-   menu schema does not include that field yet — this is additive and safe.
-─────────────────────────────────────────────────────────────────────── */
-const seedItems = MENU_ITEMS.map((item) => ({
-  ...item,
-  isAvailable: item.isAvailable !== undefined ? item.isAvailable : true,
-}));
-
-let nextIdCounter = seedItems.length + 1;
-function generateId() {
-  return `admin-${nextIdCounter++}`;
-}
+import {
+  getAdminDashboard,
+  getAdminFoods,
+  getAdminOrders,
+  addFoodItem,
+  updateFoodItem,
+  deleteFoodItem,
+  getAdminUser,
+  clearAdminSession,
+} from '../../services/adminApi';
 
 /* ─── Sidebar nav links ─────────────────────────────────────────────── */
 const NAV_LINKS = [
@@ -60,8 +62,8 @@ const NAV_LINKS = [
   { id: 'orders', label: 'Orders Overview', icon: ClipboardList },
 ];
 
-/* ─── Sidebar Component (declared outside to maintain identity across renders) ─── */
-function Sidebar({ activeSection, setActiveSection, onClose, onLogout, navigate }) {
+/* ─── Sidebar Component ─────────────────────────────────────────────── */
+function Sidebar({ activeSection, setActiveSection, onClose, onLogout, navigate, adminUser }) {
   return (
     <aside className="flex flex-col h-full bg-[#171A19] border-r border-[#38443C] w-64">
       {/* Brand */}
@@ -75,7 +77,7 @@ function Sidebar({ activeSection, setActiveSection, onClose, onLogout, navigate 
               Serve<span className="text-[#E5B86A]">Sync</span>
             </span>
             <span className="text-[10px] text-[#A8B3AA] uppercase tracking-widest font-medium">
-              Admin
+              Admin Portal
             </span>
           </div>
         </div>
@@ -91,6 +93,23 @@ function Sidebar({ activeSection, setActiveSection, onClose, onLogout, navigate 
           </button>
         )}
       </div>
+
+      {/* Admin User Badge */}
+      {adminUser && (
+        <div className="px-4 py-3 mx-3 mt-3 rounded-xl bg-[#222825] border border-[#38443C] flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-[#24543A] text-[#82B895] flex items-center justify-center text-xs font-bold uppercase">
+            {adminUser.username?.[0] || 'A'}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-bold text-[#F5F5F0] truncate leading-tight">
+              {adminUser.username || 'Admin'}
+            </p>
+            <p className="text-[10px] text-[#82B895] capitalize font-medium leading-tight">
+              {adminUser.role || 'Administrator'}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Nav Links */}
       <nav aria-label="Admin navigation" className="flex-1 px-3 py-4 space-y-1">
@@ -161,91 +180,238 @@ function Sidebar({ activeSection, setActiveSection, onClose, onLogout, navigate 
   );
 }
 
+/* ─── Main Admin Dashboard Page ─────────────────────────────────────── */
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
+  const adminUser = getAdminUser();
 
-  // Order data from shared OrderContext
-  const { orders } = useOrders();
-
-  // Food items state (seeded from mockData)
-  const [items, setItems] = useState(seedItems);
-
-  // UI state
+  // Navigation state
   const [activeSection, setActiveSection] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Form modal state
-  const [formMode, setFormMode] = useState(null); // 'add' | 'edit'
+  // Backend state: Dashboard Statistics
+  const [stats, setStats] = useState({
+    totalFoods: 0,
+    totalFoodItems: 0,
+    availableFoods: 0,
+    unavailableFoods: 0,
+    totalOrders: 0,
+    pendingOrders: 0,
+    preparingOrders: 0,
+    readyOrders: 0,
+    completedOrders: 0,
+    servedOrders: 0,
+  });
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [statsError, setStatsError] = useState(null);
+
+  // Backend state: Foods List
+  const [foods, setFoods] = useState([]);
+  const [loadingFoods, setLoadingFoods] = useState(true);
+  const [foodsError, setFoodsError] = useState(null);
+
+  // Backend state: Orders List
+  const [orders, setOrders] = useState([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+  const [ordersError, setOrdersError] = useState(null);
+
+  // UI action feedback
+  const [feedback, setFeedback] = useState(null); // { type: 'success' | 'error', text: string }
+
+  // Food Form Modal state
+  const [formMode, setFormMode] = useState(null); // 'add' | 'edit' | null
   const [editTarget, setEditTarget] = useState(null);
+  const [formError, setFormError] = useState('');
 
-  // Computed food stats
-  const stats = useMemo(() => {
-    const total = items.length;
-    const available = items.filter((i) => i.isAvailable).length;
-    const unavailable = total - available;
-    const popular = items.filter((i) => i.isPopular).length;
-    const vegCount = items.filter((i) => i.isVeg).length;
-    return { total, available, unavailable, popular, vegCount };
-  }, [items]);
+  /* ─── Data Fetching ─────────────────────────────────────────────────── */
 
-  // Computed order stats from OrderContext
-  const orderStats = useMemo(() => {
-    const total = orders.length;
-    const pending = orders.filter((o) => o.status === 'Pending').length;
-    const preparing = orders.filter((o) => o.status === 'Preparing').length;
-    const ready = orders.filter((o) => o.status === 'Ready').length;
-    const served = orders.filter((o) => o.status === 'Served').length;
-    const active = pending + preparing + ready;
-    const completed = served;
-    return { total, pending, preparing, ready, served, active, completed };
-  }, [orders]);
+  // 1. Fetch dashboard statistics from GET /api/admin/dashboard
+  const fetchDashboardStats = useCallback(async () => {
+    try {
+      setLoadingStats(true);
+      setStatsError(null);
+      const data = await getAdminDashboard();
+      if (data) {
+        setStats({
+          totalFoods: data.totalFoods ?? data.totalFoodItems ?? 0,
+          totalFoodItems: data.totalFoodItems ?? data.totalFoods ?? 0,
+          availableFoods: data.availableFoods ?? 0,
+          unavailableFoods: data.unavailableFoods ?? 0,
+          totalOrders: data.totalOrders ?? 0,
+          pendingOrders: data.pendingOrders ?? 0,
+          preparingOrders: data.preparingOrders ?? 0,
+          readyOrders: data.readyOrders ?? 0,
+          completedOrders: data.completedOrders ?? data.servedOrders ?? 0,
+          servedOrders: data.servedOrders ?? data.completedOrders ?? 0,
+        });
+      }
+    } catch (err) {
+      setStatsError(err.message || 'Failed to load dashboard statistics.');
+    } finally {
+      setLoadingStats(false);
+    }
+  }, []);
 
-  /* ─── CRUD handlers ─── */
-  function handleAdd(formData) {
-    const newItem = { ...formData, id: generateId() };
-    setItems((prev) => [newItem, ...prev]);
-    setFormMode(null);
-    setEditTarget(null);
+  // 2. Fetch all food items from GET /api/admin/foods
+  const fetchFoodsList = useCallback(async () => {
+    try {
+      setLoadingFoods(true);
+      setFoodsError(null);
+      const data = await getAdminFoods();
+      const rawList = Array.isArray(data?.foods) ? data.foods : [];
+      // Normalise each item with id = _id for FoodTable compatibility
+      const normalised = rawList.map((item) => ({
+        ...item,
+        id: String(item._id || item.id),
+        price: Number(item.price),
+        isAvailable: item.isAvailable !== false,
+      }));
+      setFoods(normalised);
+    } catch (err) {
+      setFoodsError(err.message || 'Failed to load food items from server.');
+    } finally {
+      setLoadingFoods(false);
+    }
+  }, []);
+
+  // 3. Fetch all orders from GET /api/admin/orders
+  const fetchOrdersList = useCallback(async () => {
+    try {
+      setLoadingOrders(true);
+      setOrdersError(null);
+      const data = await getAdminOrders();
+      const rawList = Array.isArray(data?.orders) ? data.orders : [];
+      setOrders(rawList);
+    } catch (err) {
+      setOrdersError(err.message || 'Failed to load orders from server.');
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, []);
+
+  // Refresh all sections
+  const refreshAll = useCallback(async () => {
+    await Promise.all([fetchDashboardStats(), fetchFoodsList(), fetchOrdersList()]);
+  }, [fetchDashboardStats, fetchFoodsList, fetchOrdersList]);
+
+  // Initial load on mount
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
+
+  // Auto-clear feedback after 4 seconds
+  useEffect(() => {
+    if (feedback) {
+      const timer = setTimeout(() => setFeedback(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [feedback]);
+
+  /* ─── CRUD Action Handlers ─────────────────────────────────────────── */
+
+  // Add new food item via POST /api/foods
+  async function handleAdd(formData) {
+    setFormError('');
+    try {
+      await addFoodItem(formData);
+      setFeedback({ type: 'success', text: `"${formData.name}" added successfully.` });
+      setFormMode(null);
+      setEditTarget(null);
+      // Refresh food list and dashboard statistics
+      fetchFoodsList();
+      fetchDashboardStats();
+    } catch (err) {
+      setFormError(err.message || 'Failed to add food item. Please try again.');
+      throw err;
+    }
   }
 
-  function handleEdit(formData) {
-    setItems((prev) =>
-      prev.map((item) => (item.id === editTarget.id ? { ...item, ...formData } : item))
-    );
-    setFormMode(null);
-    setEditTarget(null);
+  // Edit food item via PUT /api/foods/:id
+  async function handleEdit(formData) {
+    setFormError('');
+    const targetId = editTarget?._id || editTarget?.id;
+    if (!targetId) return;
+
+    try {
+      await updateFoodItem(targetId, formData);
+      setFeedback({ type: 'success', text: `"${formData.name}" updated successfully.` });
+      setFormMode(null);
+      setEditTarget(null);
+      // Refresh food list and dashboard statistics
+      fetchFoodsList();
+      fetchDashboardStats();
+    } catch (err) {
+      setFormError(err.message || 'Failed to update food item. Please try again.');
+      throw err;
+    }
   }
 
-  function handleDelete(id) {
-    setItems((prev) => prev.filter((item) => item.id !== id));
+  // Delete food item via DELETE /api/foods/:id
+  async function handleDelete(id) {
+    try {
+      await deleteFoodItem(id);
+      setFeedback({ type: 'success', text: 'Food item deleted successfully.' });
+      // Refresh food list and dashboard statistics
+      fetchFoodsList();
+      fetchDashboardStats();
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        text: err.message || 'Failed to delete food item.',
+      });
+    }
   }
 
-  function handleToggleAvail(id) {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, isAvailable: !item.isAvailable } : item
-      )
-    );
+  // Toggle food availability via PUT /api/foods/:id
+  async function handleToggleAvail(id) {
+    const item = foods.find((f) => String(f._id || f.id) === String(id));
+    if (!item) return;
+
+    const nextAvail = !item.isAvailable;
+    try {
+      await updateFoodItem(id, { isAvailable: nextAvail });
+      // Optimistic or fresh update
+      setFoods((prev) =>
+        prev.map((f) =>
+          String(f._id || f.id) === String(id) ? { ...f, isAvailable: nextAvail } : f
+        )
+      );
+      // Refresh stats
+      fetchDashboardStats();
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        text: err.message || 'Failed to update availability status.',
+      });
+      // Rollback to server state
+      fetchFoodsList();
+    }
   }
 
   function openAdd() {
     setEditTarget(null);
+    setFormError('');
     setFormMode('add');
   }
 
   function openEdit(item) {
     setEditTarget(item);
+    setFormError('');
     setFormMode('edit');
   }
 
   function closeForm() {
     setFormMode(null);
     setEditTarget(null);
+    setFormError('');
   }
 
   function handleLogout() {
-    navigate('/admin/login');
+    clearAdminSession();
+    navigate('/admin/login', { replace: true });
   }
+
+  const isRefreshing = loadingStats || loadingFoods || loadingOrders;
 
   return (
     <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] flex selection:bg-[#24543A] selection:text-[#F5F0E6]">
@@ -257,6 +423,7 @@ export default function AdminDashboardPage() {
           onClose={null}
           onLogout={handleLogout}
           navigate={navigate}
+          adminUser={adminUser}
         />
       </div>
 
@@ -275,14 +442,15 @@ export default function AdminDashboardPage() {
               onClose={() => setSidebarOpen(false)}
               onLogout={handleLogout}
               navigate={navigate}
+              adminUser={adminUser}
             />
           </div>
         </>
       )}
 
-      {/* ── Main Content ──────────────────────────────────────────── */}
+      {/* ── Main Content Area ───────────────────────────────────────── */}
       <div className="flex-1 lg:ml-64 flex flex-col min-h-screen">
-        {/* Top bar */}
+        {/* Top Header Bar */}
         <header className="sticky top-0 z-20 bg-[#171A19]/95 backdrop-blur-md border-b border-[#38443C] px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           {/* Mobile menu button */}
           <button
@@ -300,39 +468,96 @@ export default function AdminDashboardPage() {
             </h1>
           </div>
 
-          {/* Add Item shortcut in top bar */}
-          <button
-            type="button"
-            onClick={openAdd}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] border border-[#326B4B] transition-colors cursor-pointer shadow-sm focus:outline-none focus:ring-2 focus:ring-[#82B895]"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Food Item</span>
-            <span className="sm:hidden">Add</span>
-          </button>
+          {/* Action buttons in header */}
+          <div className="flex items-center gap-2.5">
+            {/* Refresh Data button */}
+            <button
+              type="button"
+              onClick={refreshAll}
+              disabled={isRefreshing}
+              title="Refresh all data from server"
+              className="p-2 rounded-xl text-[#A8B3AA] hover:text-[#F5F5F0] bg-[#222825] border border-[#38443C] hover:border-[#82B895]/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895] disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-[#82B895]' : ''}`} />
+            </button>
+
+            {/* Add Item shortcut in top bar */}
+            <button
+              type="button"
+              onClick={openAdd}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] border border-[#326B4B] transition-colors cursor-pointer shadow-sm focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Food Item</span>
+              <span className="sm:hidden">Add</span>
+            </button>
+          </div>
         </header>
+
+        {/* Global Toast Feedback */}
+        {feedback && (
+          <div className="px-4 sm:px-6 pt-4">
+            <div
+              role="status"
+              className={`flex items-center justify-between p-3.5 rounded-xl border text-xs font-medium ${
+                feedback.type === 'success'
+                  ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-300'
+                  : 'bg-rose-950/40 border-rose-700/60 text-rose-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {feedback.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                )}
+                <span>{feedback.text}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFeedback(null)}
+                className="text-[#A8B3AA] hover:text-[#F5F5F0] p-1 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Page body */}
         <main className="flex-1 px-4 sm:px-6 py-6 max-w-7xl w-full mx-auto">
           {activeSection === 'overview' && (
             <OverviewSection
               stats={stats}
-              orderStats={orderStats}
+              loadingStats={loadingStats}
+              statsError={statsError}
+              onRetryStats={fetchDashboardStats}
               onNavigateToMenu={() => setActiveSection('menu')}
               onNavigateToOrders={() => setActiveSection('orders')}
             />
           )}
+
           {activeSection === 'menu' && (
             <MenuSection
-              items={items}
+              items={foods}
+              loadingFoods={loadingFoods}
+              foodsError={foodsError}
+              onRetryFoods={fetchFoodsList}
               onAdd={openAdd}
               onEdit={openEdit}
               onDelete={handleDelete}
               onToggleAvail={handleToggleAvail}
             />
           )}
+
           {activeSection === 'orders' && (
-            <OrdersSection orders={orders} onGoToKitchen={() => navigate('/kitchen')} />
+            <OrdersSection
+              orders={orders}
+              loadingOrders={loadingOrders}
+              ordersError={ordersError}
+              onRetryOrders={fetchOrdersList}
+              onGoToKitchen={() => navigate('/kitchen')}
+            />
           )}
         </main>
 
@@ -341,19 +566,20 @@ export default function AdminDashboardPage() {
           <span>
             <span className="font-semibold text-[#F5F5F0]">ServeSync</span> · Admin Dashboard · Member 3
           </span>
-          <span className="text-[#E5B86A]">Frontend Demo</span>
+          <span className="text-[#82B895]">Backend Connected</span>
         </footer>
       </div>
 
       {/* ── Food Form Modal ───────────────────────────────────────── */}
       {formMode && (
         <FoodForm
-          key={editTarget?.id || formMode || 'new-food-form'}
+          key={editTarget?._id || editTarget?.id || formMode}
           initialData={formMode === 'edit' ? editTarget : null}
           onSave={formMode === 'edit' ? handleEdit : handleAdd}
           onCancel={closeForm}
           isModal={true}
           title={formMode === 'edit' ? `Edit: ${editTarget?.name}` : 'Add New Food Item'}
+          serverError={formError}
         />
       )}
     </div>
@@ -361,62 +587,45 @@ export default function AdminDashboardPage() {
 }
 
 /* ─── Overview Section ────────────────────────────────────────────────── */
-function OverviewSection({ stats, orderStats, onNavigateToMenu, onNavigateToOrders }) {
+function OverviewSection({
+  stats,
+  loadingStats,
+  statsError,
+  onRetryStats,
+  onNavigateToMenu,
+  onNavigateToOrders,
+}) {
   const foodCards = [
     {
-      label: 'Total Menu Items',
-      value: stats.total,
+      label: 'Total Food Items',
+      value: stats.totalFoodItems ?? stats.totalFoods ?? 0,
       icon: UtensilsCrossed,
       color: 'text-[#E5B86A]',
       bg: 'bg-[#E5B86A]/10',
       border: 'border-[#E5B86A]/20',
     },
     {
-      label: 'Available Items',
-      value: stats.available,
+      label: 'Available Foods',
+      value: stats.availableFoods ?? 0,
       icon: CheckCircle2,
       color: 'text-[#82B895]',
       bg: 'bg-[#82B895]/10',
       border: 'border-[#82B895]/20',
     },
     {
-      label: 'Unavailable Items',
-      value: stats.unavailable,
+      label: 'Unavailable Foods',
+      value: stats.unavailableFoods ?? 0,
       icon: XCircle,
       color: 'text-rose-400',
       bg: 'bg-rose-400/10',
       border: 'border-rose-400/20',
-    },
-    {
-      label: 'Popular / Bestsellers',
-      value: stats.popular,
-      icon: Star,
-      color: 'text-amber-400',
-      bg: 'bg-amber-400/10',
-      border: 'border-amber-400/20',
-    },
-    {
-      label: 'Vegetarian Items',
-      value: stats.vegCount,
-      icon: Leaf,
-      color: 'text-emerald-400',
-      bg: 'bg-emerald-400/10',
-      border: 'border-emerald-400/20',
-    },
-    {
-      label: 'Non-Vegetarian Items',
-      value: stats.total - stats.vegCount,
-      icon: TrendingUp,
-      color: 'text-orange-400',
-      bg: 'bg-orange-400/10',
-      border: 'border-orange-400/20',
     },
   ];
 
   const orderCards = [
     {
       label: 'Total Orders',
-      value: orderStats.total,
+      value: stats.totalOrders ?? 0,
       icon: ClipboardList,
       color: 'text-[#E5B86A]',
       bg: 'bg-[#E5B86A]/10',
@@ -424,73 +633,92 @@ function OverviewSection({ stats, orderStats, onNavigateToMenu, onNavigateToOrde
     },
     {
       label: 'Pending Orders',
-      value: orderStats.pending,
+      value: stats.pendingOrders ?? 0,
       icon: Flame,
       color: 'text-amber-400',
       bg: 'bg-amber-400/10',
       border: 'border-amber-400/20',
     },
     {
-      label: 'Preparing',
-      value: orderStats.preparing,
+      label: 'Preparing Orders',
+      value: stats.preparingOrders ?? 0,
       icon: Bell,
       color: 'text-blue-400',
       bg: 'bg-blue-400/10',
       border: 'border-blue-400/20',
     },
     {
-      label: 'Ready for Pickup',
-      value: orderStats.ready,
+      label: 'Ready Orders',
+      value: stats.readyOrders ?? 0,
       icon: CheckCircle2,
       color: 'text-[#82B895]',
       bg: 'bg-[#82B895]/10',
       border: 'border-[#82B895]/20',
     },
     {
-      label: 'Completed / Served',
-      value: orderStats.completed,
+      label: 'Completed Orders',
+      value: stats.completedOrders ?? stats.servedOrders ?? 0,
       icon: CheckCheck,
       color: 'text-slate-400',
       bg: 'bg-slate-400/10',
       border: 'border-slate-400/20',
-    },
-    {
-      label: 'Active in Kitchen',
-      value: orderStats.active,
-      icon: Clock,
-      color: 'text-purple-400',
-      bg: 'bg-purple-400/10',
-      border: 'border-purple-400/20',
     },
   ];
 
   return (
     <div>
       {/* Section heading */}
-      <div className="mb-6">
-        <h2 className="text-2xl font-black text-[#F5F5F0] mb-1">Dashboard Overview</h2>
-        <p className="text-sm text-[#A8B3AA]">
-          A snapshot of your restaurant menu and orders at a glance.
-        </p>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-black text-[#F5F5F0] mb-1">Dashboard Overview</h2>
+          <p className="text-sm text-[#A8B3AA]">
+            Real-time restaurant metrics live from MongoDB via GET /api/admin/dashboard.
+          </p>
+        </div>
+        {loadingStats && (
+          <span className="flex items-center gap-2 text-xs text-[#82B895]">
+            <span className="w-3.5 h-3.5 border-2 border-[#82B895] border-t-transparent rounded-full animate-spin" />
+            Loading statistics…
+          </span>
+        )}
       </div>
 
-      {/* ── Menu Stat Cards ─── */}
-      <div className="mb-3">
+      {/* Error state */}
+      {statsError && (
+        <div className="mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-700/60 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            <p className="text-sm text-rose-300">{statsError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onRetryStats}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-900/60 hover:bg-rose-800 text-rose-100 border border-rose-600 cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* ── Food Stats Cards ─── */}
+      <div className="mb-4">
         <h3 className="text-xs font-bold text-[#A8B3AA] uppercase tracking-widest mb-3 flex items-center gap-2">
           <UtensilsCrossed className="w-3.5 h-3.5 text-[#E5B86A]" />
-          Menu Summary
+          Food Items Summary
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           {foodCards.map(({ label, value, icon: Icon, color, bg, border }) => (
             <div
               key={label}
-              className={`bg-[#222825] border ${border} rounded-2xl p-5 flex flex-col gap-3 hover:scale-[1.02] transition-transform duration-200`}
+              className={`bg-[#222825] border ${border} rounded-2xl p-5 flex flex-col gap-3 hover:scale-[1.01] transition-transform duration-200`}
             >
               <div className={`w-10 h-10 rounded-xl ${bg} border ${border} flex items-center justify-center`}>
                 <Icon className={`w-5 h-5 ${color}`} />
               </div>
               <div>
-                <p className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">{value}</p>
+                <p className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">
+                  {loadingStats ? '—' : value}
+                </p>
                 <p className="text-xs text-[#A8B3AA] font-medium mt-0.5">{label}</p>
               </div>
             </div>
@@ -498,24 +726,25 @@ function OverviewSection({ stats, orderStats, onNavigateToMenu, onNavigateToOrde
         </div>
       </div>
 
-      {/* ── Order Stat Cards ─── */}
+      {/* ── Order Stats Cards ─── */}
       <div className="mb-8">
         <h3 className="text-xs font-bold text-[#A8B3AA] uppercase tracking-widest mb-3 flex items-center gap-2">
           <ClipboardList className="w-3.5 h-3.5 text-[#82B895]" />
-          Orders Summary
-          <span className="text-[10px] font-normal text-[#68736A] normal-case tracking-normal">(live from OrderContext)</span>
+          Order Status Summary
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           {orderCards.map(({ label, value, icon: Icon, color, bg, border }) => (
             <div
               key={label}
-              className={`bg-[#222825] border ${border} rounded-2xl p-5 flex flex-col gap-3 hover:scale-[1.02] transition-transform duration-200`}
+              className={`bg-[#222825] border ${border} rounded-2xl p-5 flex flex-col gap-3 hover:scale-[1.01] transition-transform duration-200`}
             >
               <div className={`w-10 h-10 rounded-xl ${bg} border ${border} flex items-center justify-center`}>
                 <Icon className={`w-5 h-5 ${color}`} />
               </div>
               <div>
-                <p className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">{value}</p>
+                <p className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">
+                  {loadingStats ? '—' : value}
+                </p>
                 <p className="text-xs text-[#A8B3AA] font-medium mt-0.5">{label}</p>
               </div>
             </div>
@@ -523,9 +752,9 @@ function OverviewSection({ stats, orderStats, onNavigateToMenu, onNavigateToOrde
         </div>
       </div>
 
-      {/* Quick actions */}
+      {/* Quick Navigation Cards */}
       <div className="bg-[#222825] border border-[#38443C] rounded-2xl p-6">
-        <h3 className="text-base font-bold text-[#F5F5F0] mb-4">Quick Actions</h3>
+        <h3 className="text-base font-bold text-[#F5F5F0] mb-4">Quick Navigation</h3>
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
@@ -550,7 +779,16 @@ function OverviewSection({ stats, orderStats, onNavigateToMenu, onNavigateToOrde
 }
 
 /* ─── Menu Management Section ─────────────────────────────────────────── */
-function MenuSection({ items, onAdd, onEdit, onDelete, onToggleAvail }) {
+function MenuSection({
+  items,
+  loadingFoods,
+  foodsError,
+  onRetryFoods,
+  onAdd,
+  onEdit,
+  onDelete,
+  onToggleAvail,
+}) {
   return (
     <div>
       {/* Section heading */}
@@ -558,7 +796,7 @@ function MenuSection({ items, onAdd, onEdit, onDelete, onToggleAvail }) {
         <div>
           <h2 className="text-2xl font-black text-[#F5F5F0] mb-1">Menu Management</h2>
           <p className="text-sm text-[#A8B3AA]">
-            Add, edit, delete, or toggle availability of food items.
+            Add, update, remove, or toggle availability of dishes stored in the database.
           </p>
         </div>
         <button
@@ -571,12 +809,329 @@ function MenuSection({ items, onAdd, onEdit, onDelete, onToggleAvail }) {
         </button>
       </div>
 
+      {/* Foods Error Alert */}
+      {foodsError && (
+        <div className="mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-700/60 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            <p className="text-sm text-rose-300">{foodsError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onRetryFoods}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-900/60 hover:bg-rose-800 text-rose-100 border border-rose-600 cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Food Table */}
       <FoodTable
         items={items}
         onEdit={onEdit}
         onDelete={onDelete}
         onToggleAvail={onToggleAvail}
+        isLoading={loadingFoods}
       />
     </div>
+  );
+}
+
+/* ─── Orders Overview Section (Member 3 Task 4) ───────────────────────── */
+function OrdersSection({ orders, loadingOrders, ordersError, onRetryOrders, onGoToKitchen }) {
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [search, setSearch] = useState('');
+
+  // Format order timestamp
+  function formatTime(timestamp) {
+    if (!timestamp) return 'N/A';
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return String(timestamp);
+      return date.toLocaleDateString('en-IN', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return String(timestamp);
+    }
+  }
+
+  // Filter orders
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      const q = search.trim().toLowerCase();
+      const orderIdStr = String(order._id || order.id || '').toLowerCase();
+      const tableStr = String(order.tableNumber ?? '');
+      const itemsStr = Array.isArray(order.items)
+        ? order.items.map((i) => i.name).join(' ').toLowerCase()
+        : '';
+
+      const matchesSearch =
+        !q ||
+        orderIdStr.includes(q) ||
+        tableStr.includes(q) ||
+        itemsStr.includes(q);
+
+      const matchesStatus =
+        statusFilter === 'All' ||
+        order.status?.toLowerCase() === statusFilter.toLowerCase();
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [orders, statusFilter, search]);
+
+  const STATUS_TABS = ['All', 'Pending', 'Preparing', 'Ready', 'Served'];
+
+  return (
+    <div>
+      {/* Section Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div>
+          <h2 className="text-2xl font-black text-[#F5F5F0] mb-1">Orders Overview</h2>
+          <p className="text-sm text-[#A8B3AA]">
+            Monitor all customer orders placed across tables via GET /api/admin/orders.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onGoToKitchen}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-[#222825] hover:bg-[#2A332E] text-[#82B895] border border-[#38443C] hover:border-[#82B895]/50 transition-colors cursor-pointer shrink-0"
+        >
+          <ChefHat className="w-4 h-4" />
+          <span>Open Kitchen Display</span>
+          <ExternalLink className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Orders Error Alert */}
+      {ordersError && (
+        <div className="mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-700/60 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            <p className="text-sm text-rose-300">{ordersError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onRetryOrders}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-900/60 hover:bg-rose-800 text-rose-100 border border-rose-600 cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        {/* Search */}
+        <div className="relative flex-1 min-w-0">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A8B3AA]" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by order ID, table number, or dish…"
+            aria-label="Search orders"
+            className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-[#171A19] border border-[#38443C] text-sm text-[#F5F5F0] placeholder-[#A8B3AA] focus:outline-none focus:border-[#82B895] focus:ring-2 focus:ring-[#82B895]/30 transition-colors"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#A8B3AA] hover:text-[#F5F5F0] p-0.5 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Status Filter Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          {STATUS_TABS.map((tab) => {
+            const isActive = statusFilter.toLowerCase() === tab.toLowerCase();
+            return (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setStatusFilter(tab)}
+                className={`
+                  px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer
+                  ${
+                    isActive
+                      ? 'bg-[#24543A] text-[#F5F0E6] border border-[#326B4B]'
+                      : 'bg-[#171A19] text-[#A8B3AA] border border-[#38443C] hover:text-[#F5F5F0]'
+                  }
+                `}
+              >
+                {tab === 'Served' ? 'Completed' : tab}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Results Count & Loading */}
+      <div className="flex items-center justify-between mb-4 text-xs text-[#A8B3AA]">
+        <p>
+          Showing <span className="font-bold text-[#F5F5F0]">{filteredOrders.length}</span> of{' '}
+          <span className="font-bold text-[#F5F5F0]">{orders.length}</span> orders
+        </p>
+        {loadingOrders && (
+          <span className="flex items-center gap-1.5 text-[#82B895]">
+            <span className="w-3 h-3 border-2 border-[#82B895] border-t-transparent rounded-full animate-spin" />
+            Loading orders…
+          </span>
+        )}
+      </div>
+
+      {/* Orders List / Empty State */}
+      {filteredOrders.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-xl bg-[#222825] border border-[#38443C] border-dashed">
+          <div className="w-14 h-14 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center mb-4">
+            <ClipboardList className="w-7 h-7 text-[#A8B3AA] opacity-50" />
+          </div>
+          <h3 className="text-lg font-bold text-[#F5F5F0] mb-2">
+            {search || statusFilter !== 'All' ? 'No orders match your filter' : 'No orders recorded yet'}
+          </h3>
+          <p className="text-sm text-[#A8B3AA] max-w-sm mb-4">
+            {search || statusFilter !== 'All'
+              ? 'Try clearing the search or status filter to see all orders.'
+              : 'When customers place orders from the table menu, they will appear here in real time.'}
+          </p>
+          {(search || statusFilter !== 'All') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch('');
+                setStatusFilter('All');
+              }}
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#24543A] text-[#F5F0E6] hover:bg-[#326B4B] cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredOrders.map((order) => {
+            const orderId = order._id ? String(order._id) : String(order.id);
+            const shortId = orderId.length > 8 ? orderId.slice(-6).toUpperCase() : orderId;
+            const items = Array.isArray(order.items) ? order.items : [];
+            const total = order.totalAmount ?? order.total ?? 0;
+            const status = order.status || 'Pending';
+
+            return (
+              <div
+                key={orderId}
+                className="bg-[#222825] border border-[#38443C] rounded-2xl p-5 hover:border-[#82B895]/40 transition-colors shadow-md"
+              >
+                {/* Order Top Meta */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#38443C]/60 mb-3">
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-base sm:text-lg font-black text-[#F5F5F0]">
+                      #{shortId}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-lg bg-[#171A19] border border-[#38443C] text-xs font-bold text-[#E5B86A]">
+                      Table {order.tableNumber != null ? order.tableNumber : 'N/A'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {/* Timestamp */}
+                    <div className="flex items-center gap-1.5 text-xs text-[#A8B3AA]">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{formatTime(order.createdAt)}</span>
+                    </div>
+
+                    {/* Status Badge */}
+                    <OrderStatusBadge status={status} />
+                  </div>
+                </div>
+
+                {/* Ordered Items List */}
+                <div className="mb-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#A8B3AA] mb-2">
+                    Ordered Items ({items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)})
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {items.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between px-3 py-2 rounded-xl bg-[#171A19] border border-[#38443C]/60 text-xs"
+                      >
+                        <span className="font-medium text-[#F5F5F0] truncate mr-2">
+                          <span className="font-bold text-[#E5B86A] mr-1.5">{item.quantity}×</span>
+                          {item.name || 'Unnamed Dish'}
+                        </span>
+                        {item.price != null && (
+                          <span className="text-[#A8B3AA] shrink-0 font-medium">
+                            ₹{Number(item.price) * (Number(item.quantity) || 1)}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Special instructions if any */}
+                {order.specialInstructions && (
+                  <p className="text-xs text-amber-200/90 bg-amber-950/30 border border-amber-600/30 px-3 py-1.5 rounded-lg mb-3">
+                    <span className="font-semibold text-amber-400">Note: </span>
+                    "{order.specialInstructions}"
+                  </p>
+                )}
+
+                {/* Footer Total */}
+                <div className="flex items-center justify-between pt-2 border-t border-[#38443C]/40 text-xs">
+                  <span className="text-[#A8B3AA] font-medium">
+                    Order ID: <span className="font-mono text-[#F5F5F0]">{orderId}</span>
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[11px] uppercase tracking-wider text-[#A8B3AA] font-bold">
+                      Total:
+                    </span>
+                    <span className="text-base font-black text-[#E5B86A]">
+                      ₹{total}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Status Badge Helper */
+function OrderStatusBadge({ status }) {
+  const norm = status ? status.toLowerCase() : 'pending';
+
+  let badgeCls = 'bg-amber-950/40 border-amber-600/60 text-amber-300';
+  let label = status;
+
+  if (norm === 'pending') {
+    badgeCls = 'bg-amber-950/40 border-amber-600/60 text-amber-300';
+    label = 'Pending';
+  } else if (norm === 'preparing') {
+    badgeCls = 'bg-blue-950/40 border-blue-600/60 text-blue-300';
+    label = 'Preparing';
+  } else if (norm === 'ready') {
+    badgeCls = 'bg-emerald-950/40 border-emerald-600/60 text-emerald-300';
+    label = 'Ready for Pickup';
+  } else if (norm === 'served' || norm === 'completed') {
+    badgeCls = 'bg-slate-900 border-slate-700 text-slate-300';
+    label = 'Completed';
+  }
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${badgeCls}`}>
+      {label}
+    </span>
   );
 }
