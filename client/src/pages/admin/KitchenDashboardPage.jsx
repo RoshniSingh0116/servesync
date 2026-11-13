@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ChefHat,
@@ -7,7 +7,7 @@ import {
   Bell,
   CheckCheck,
   CheckCircle2,
-  RotateCcw,
+  RefreshCw,
   Search,
   LayoutGrid,
   Columns,
@@ -17,61 +17,92 @@ import {
   Check,
   ArrowLeft,
   Shield,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import OrderCard from '../../components/admin/OrderCard';
-import { useOrders } from '../../context/OrderContext';
 import {
   STATUS_BADGE_STYLES,
   STATUS_TRANSITIONS,
 } from '../../mocks/mockOrders';
+import {
+  fetchAllKitchenOrders,
+  fetchKitchenOrdersByStatus,
+  patchKitchenOrderStatus,
+} from '../../api/kitchenApi';
 
 /**
  * KitchenDashboardPage Component
  *
  * Professional Kitchen Display System (KDS) for ServeSync (Member 4).
- * Allows kitchen staff to monitor, organize, and advance order tickets
- * through the lifecycle: Pending → Preparing → Ready → Served.
+ * Fetches real orders from the backend Kitchen API and allows kitchen staff
+ * to advance order status through the lifecycle:
+ *   Pending → Preparing → Ready → Served
  *
- * Fully decoupled: can receive `orders` and `onUpdateStatus` via props from
- * a future shared context, or default to self-contained mock data.
- *
- * @param {Object} props
- * @param {Array} [props.orders] - Optional orders array from parent / CartContext
- * @param {Function} [props.onUpdateStatus] - Optional callback (orderId, newStatus) => void
+ * API endpoints consumed:
+ *   GET   /api/kitchen/orders               — all orders, newest first
+ *   GET   /api/kitchen/orders/status/:status — filter by status
+ *   PATCH /api/kitchen/orders/:id/status    — update order status
  */
-export default function KitchenDashboardPage({
-  orders: externalOrdersProp,
-  onUpdateStatus: externalUpdateStatus,
-}) {
+export default function KitchenDashboardPage() {
   const navigate = useNavigate();
-  const { orders: contextOrders, updateOrderStatus, resetOrders } = useOrders();
 
-  // 1. Orders State: Prefer external prop, then OrderContext
-  const orders = externalOrdersProp || contextOrders;
+  /* ── 1. Orders state from backend ─────────────────────────────────────── */
+  const [orders, setOrders] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
 
-  // 2. Filter & View Controls State
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState('Active'); // 'Active' | 'All' | 'Pending' | 'Preparing' | 'Ready' | 'Served'
+  /* ── 2. Per-order update state (tracks which order is being patched) ──── */
+  // Map of orderId → true while PATCH request is in-flight
+  const [updatingOrders, setUpdatingOrders] = useState({});
+
+  /* ── 3. Filter & View controls ────────────────────────────────────────── */
+  // 'All' | 'Pending' | 'Preparing' | 'Ready' | 'Served'
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'columns'
-  const [sortOrder, setSortOrder] = useState('fifo'); // 'fifo' (oldest first) | 'lifo' (newest first)
+  const [sortOrder, setSortOrder] = useState('lifo'); // 'lifo' (newest first) | 'fifo' (oldest first)
 
-  // 3. Live Clock State for Kitchen Staff
+  /* ── 4. Live Clock ────────────────────────────────────────────────────── */
   const [currentTime, setCurrentTime] = useState(() => new Date());
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 4. Toast Feedback State
-  const [toast, setToast] = useState(null);
-  const showToast = (message, type = 'info') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 2800);
-  };
+  /* ── 5. Toast feedback ────────────────────────────────────────────────── */
+  const [toast, setToast] = useState(null); // { message, type: 'success'|'error'|'info' }
 
-  // 5. Dynamic Order Counts (Calculated dynamically, never hardcoded)
+  const showToast = useCallback((message, type = 'info') => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  /* ── 6. Fetch orders from backend ─────────────────────────────────────── */
+  const loadOrders = useCallback(async () => {
+    setIsLoading(true);
+    setFetchError(null);
+    try {
+      const data = await fetchAllKitchenOrders();
+      setOrders(data);
+    } catch (err) {
+      const message =
+        err?.response?.data?.error ||
+        err?.message ||
+        'Failed to load orders. Please check your connection and try again.';
+      setFetchError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Initial fetch on mount
+  useEffect(() => {
+    loadOrders();
+  }, [loadOrders]);
+
+  /* ── 7. Dynamic order counts ──────────────────────────────────────────── */
   const orderCounts = useMemo(() => {
     const counts = {
       total: orders.length,
@@ -84,64 +115,81 @@ export default function KitchenDashboardPage({
     return counts;
   }, [orders]);
 
-  // 6. Status Transition Handler (Strictly validates linear flow)
-  const handleStatusChange = (orderId, nextStatus) => {
-    const targetOrder = orders.find((o) => o.id === orderId);
+  /* ── 8. Status transition handler (calls real PATCH API) ─────────────── */
+  const handleStatusChange = useCallback(async (orderId, nextStatus) => {
+    // Guard: prevent double-submission if this order is already updating
+    if (updatingOrders[orderId]) return;
+
+    // Guard: validate the transition matches the strict forward-only flow
+    const targetOrder = orders.find((o) => String(o.id) === String(orderId));
     if (!targetOrder) return;
 
-    // Validate valid transition: Pending -> Preparing -> Ready -> Served
     const expectedNext = STATUS_TRANSITIONS[targetOrder.status];
     if (expectedNext !== nextStatus) {
       console.warn(
-        `[ServeSync KDS] Blocked invalid transition: ${targetOrder.status} -> ${nextStatus}`
+        `[ServeSync KDS] Blocked invalid transition: ${targetOrder.status} → ${nextStatus}`
+      );
+      showToast(
+        `Invalid status transition: ${targetOrder.status} → ${nextStatus}`,
+        'error'
       );
       return;
     }
 
-    // Update status in shared OrderContext or external prop handler
-    if (typeof updateOrderStatus === 'function') {
-      updateOrderStatus(orderId, nextStatus);
-    }
-    if (typeof externalUpdateStatus === 'function') {
-      externalUpdateStatus(orderId, nextStatus);
-    }
+    // Mark this order as updating (disables its button)
+    setUpdatingOrders((prev) => ({ ...prev, [orderId]: true }));
 
-    // Visual feedback toast
-    showToast(
-      `Order #${targetOrder.id} (Table ${targetOrder.tableNumber}) marked as ${nextStatus}!`,
-      'success'
-    );
-  };
+    try {
+      const updatedOrder = await patchKitchenOrderStatus(String(orderId), nextStatus);
 
-  // 7. Reset Mock Data (Convenient for evaluators/testers)
-  const handleResetData = () => {
-    if (typeof resetOrders === 'function') {
-      resetOrders();
+      // Merge the updated order back into local state without a full refetch
+      setOrders((prev) =>
+        prev.map((o) => (String(o.id) === String(orderId) ? updatedOrder : o))
+      );
+
+      showToast(
+        `Order #${typeof orderId === 'string' && orderId.length > 10 ? orderId.slice(-6) : orderId} (Table ${targetOrder.tableNumber}) → ${nextStatus}`,
+        'success'
+      );
+    } catch (err) {
+      // Surface backend validation messages (transition errors, terminal order, etc.)
+      const backendMessage =
+        err?.response?.data?.error ||
+        err?.message ||
+        'Failed to update order status. Please try again.';
+      showToast(backendMessage, 'error');
+      console.error('[KitchenDashboard] Status update failed:', backendMessage);
+    } finally {
+      // Always clear the updating lock
+      setUpdatingOrders((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
     }
-    setSelectedStatusFilter('Active');
-    setSearchQuery('');
-    showToast('Mock orders reloaded to initial state', 'info');
-  };
+  }, [orders, updatingOrders, showToast]);
 
-  // 8. Filter and Sort Orders
+  /* ── 9. Filter and sort orders (client-side, applied after fetch) ──────── */
   const filteredOrders = useMemo(() => {
     let result = [...orders];
 
     // Status filter
-    if (selectedStatusFilter === 'Active') {
-      result = result.filter(
-        (o) => o.status === 'Pending' || o.status === 'Preparing' || o.status === 'Ready'
-      );
-    } else if (selectedStatusFilter !== 'All') {
+    if (selectedStatusFilter !== 'All') {
       result = result.filter((o) => o.status === selectedStatusFilter);
     }
 
-    // Search query filter (matches Order #, Table #, or dish item name)
+    // Search query filter (matches short ID suffix, table #, or dish name)
     const query = searchQuery.trim().toLowerCase();
     if (query) {
       result = result.filter((order) => {
-        const matchesId = String(order.id).toLowerCase().includes(query);
-        const matchesTable = `table ${order.tableNumber}`.toLowerCase().includes(query) ||
+        const shortId = typeof order.id === 'string' && order.id.length > 10
+          ? order.id.slice(-6)
+          : String(order.id);
+        const matchesId =
+          String(order.id).toLowerCase().includes(query) ||
+          shortId.toLowerCase().includes(query);
+        const matchesTable =
+          `table ${order.tableNumber}`.toLowerCase().includes(query) ||
           String(order.tableNumber).toLowerCase() === query;
         const matchesItems = order.items?.some((item) =>
           item.name?.toLowerCase().includes(query)
@@ -150,7 +198,7 @@ export default function KitchenDashboardPage({
       });
     }
 
-    // Sort order: FIFO (Oldest first) is restaurant standard, LIFO is newest first
+    // Sort
     result.sort((a, b) => {
       const timeA = new Date(a.createdAt || 0).getTime();
       const timeB = new Date(b.createdAt || 0).getTime();
@@ -160,21 +208,25 @@ export default function KitchenDashboardPage({
     return result;
   }, [orders, selectedStatusFilter, searchQuery, sortOrder]);
 
-  // Grouped orders for Kanban / Column view
+  // Grouped orders for Kanban / Column view (always uses all orders, not filtered)
   const columnsData = useMemo(() => {
-    const baseList = searchQuery
-      ? filteredOrders
-      : orders; // In column view, columns categorize by status
+    const base = searchQuery ? filteredOrders : orders;
     return {
-      Pending: baseList.filter((o) => o.status === 'Pending'),
-      Preparing: baseList.filter((o) => o.status === 'Preparing'),
-      Ready: baseList.filter((o) => o.status === 'Ready'),
-      Served: baseList.filter((o) => o.status === 'Served'),
+      Pending: base.filter((o) => o.status === 'Pending'),
+      Preparing: base.filter((o) => o.status === 'Preparing'),
+      Ready: base.filter((o) => o.status === 'Ready'),
+      Served: base.filter((o) => o.status === 'Served'),
     };
   }, [orders, filteredOrders, searchQuery]);
 
+  /* ── Helpers ──────────────────────────────────────────────────────────── */
+  const shortId = (id) =>
+    typeof id === 'string' && id.length > 10 ? id.slice(-6) : id;
+
+  /* ── Render ───────────────────────────────────────────────────────────── */
   return (
     <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] flex flex-col font-sans selection:bg-[#24543A] selection:text-[#F5F0E6]">
+
       {/* ─────────────────────────────────────────────────────────────
           A. KDS NAVIGATION / HEADER
       ───────────────────────────────────────────────────────────── */}
@@ -201,8 +253,8 @@ export default function KitchenDashboardPage({
               </div>
             </div>
 
-            {/* Live Clock & Station Pulse */}
-            <div className="flex items-center gap-4">
+            {/* Live Clock & Controls */}
+            <div className="flex items-center gap-3">
               {/* Live Clock */}
               <div className="hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#222825] border border-[#38443C] text-xs">
                 <Clock className="w-4 h-4 text-[#82B895]" />
@@ -216,21 +268,23 @@ export default function KitchenDashboardPage({
                 <span className="text-[#A8B3AA] ml-1">Live Service</span>
               </div>
 
-              {/* Reset Mock Data Button */}
+              {/* Refresh Button */}
               <button
                 type="button"
-                onClick={handleResetData}
-                title="Reset mock orders to initial state"
-                aria-label="Reset mock data"
+                onClick={loadOrders}
+                disabled={isLoading}
+                title="Refresh orders from server"
+                aria-label="Refresh kitchen orders"
                 className="
                   inline-flex items-center gap-1.5 px-3 py-2 rounded-xl
                   bg-[#222825] border border-[#38443C] hover:border-[#82B895]
                   text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0]
                   transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                  disabled:opacity-50 disabled:cursor-not-allowed
                 "
               >
-                <RotateCcw className="w-3.5 h-3.5 text-[#E5B86A]" />
-                <span className="hidden sm:inline">Reset Demo</span>
+                <RefreshCw className={`w-3.5 h-3.5 text-[#E5B86A] ${isLoading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Refresh</span>
               </button>
 
               {/* View Customer Menu Link */}
@@ -270,47 +324,44 @@ export default function KitchenDashboardPage({
       </header>
 
       {/* ─────────────────────────────────────────────────────────────
-          B. STATS OVERVIEW CARDS (Calculated dynamically)
+          B. STATS OVERVIEW CARDS
       ───────────────────────────────────────────────────────────── */}
       <section className="bg-gradient-to-b from-[#222825] to-[#171A19] border-b border-[#38443C] py-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-            {/* Total Active Orders */}
+
+            {/* Total Orders */}
             <button
               type="button"
-              onClick={() => setSelectedStatusFilter('Active')}
+              onClick={() => setSelectedStatusFilter('All')}
               className={`
                 p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
                 focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                ${
-                  selectedStatusFilter === 'Active'
-                    ? 'bg-[#24543A]/30 border-[#82B895] shadow-md shadow-[#24543A]/20'
-                    : 'bg-[#222825] border-[#38443C] hover:border-[#82B895]/50'
-                }
+                ${selectedStatusFilter === 'All'
+                  ? 'bg-[#24543A]/30 border-[#82B895] shadow-md shadow-[#24543A]/20'
+                  : 'bg-[#222825] border-[#38443C] hover:border-[#82B895]/50'}
               `}
             >
               <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
-                <span>Active Queue</span>
+                <span>All Orders</span>
                 <Utensils className="w-4 h-4 text-[#82B895]" />
               </div>
               <div className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">
-                {orderCounts.active}
+                {isLoading ? '—' : orderCounts.total}
               </div>
-              <span className="text-[11px] text-[#A8B3AA]">Pending, Prep & Ready</span>
+              <span className="text-[11px] text-[#A8B3AA]">Today's queue</span>
             </button>
 
-            {/* Pending Orders */}
+            {/* Pending */}
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('Pending')}
               className={`
                 p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
                 focus:outline-none focus:ring-2 focus:ring-[#E5B86A]
-                ${
-                  selectedStatusFilter === 'Pending'
-                    ? 'bg-amber-950/40 border-[#E5B86A] shadow-md shadow-amber-900/20'
-                    : 'bg-[#222825] border-[#38443C] hover:border-[#E5B86A]/50'
-                }
+                ${selectedStatusFilter === 'Pending'
+                  ? 'bg-amber-950/40 border-[#E5B86A] shadow-md shadow-amber-900/20'
+                  : 'bg-[#222825] border-[#38443C] hover:border-[#E5B86A]/50'}
               `}
             >
               <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
@@ -318,23 +369,21 @@ export default function KitchenDashboardPage({
                 <Flame className="w-4 h-4 text-[#E5B86A]" />
               </div>
               <div className="text-2xl sm:text-3xl font-black text-[#E5B86A]">
-                {orderCounts.pending}
+                {isLoading ? '—' : orderCounts.pending}
               </div>
               <span className="text-[11px] text-[#A8B3AA]">Awaiting prep</span>
             </button>
 
-            {/* Preparing Orders */}
+            {/* Preparing */}
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('Preparing')}
               className={`
                 p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
                 focus:outline-none focus:ring-2 focus:ring-[#3B82F6]
-                ${
-                  selectedStatusFilter === 'Preparing'
-                    ? 'bg-blue-950/40 border-[#3B82F6] shadow-md shadow-blue-900/20'
-                    : 'bg-[#222825] border-[#38443C] hover:border-[#3B82F6]/50'
-                }
+                ${selectedStatusFilter === 'Preparing'
+                  ? 'bg-blue-950/40 border-[#3B82F6] shadow-md shadow-blue-900/20'
+                  : 'bg-[#222825] border-[#38443C] hover:border-[#3B82F6]/50'}
               `}
             >
               <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
@@ -342,23 +391,21 @@ export default function KitchenDashboardPage({
                 <Bell className="w-4 h-4 text-[#60A5FA]" />
               </div>
               <div className="text-2xl sm:text-3xl font-black text-[#93C5FD]">
-                {orderCounts.preparing}
+                {isLoading ? '—' : orderCounts.preparing}
               </div>
               <span className="text-[11px] text-[#A8B3AA]">On stove / in oven</span>
             </button>
 
-            {/* Ready Orders */}
+            {/* Ready */}
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('Ready')}
               className={`
                 p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
                 focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                ${
-                  selectedStatusFilter === 'Ready'
-                    ? 'bg-[#24543A]/40 border-[#82B895] shadow-md shadow-[#24543A]/20'
-                    : 'bg-[#222825] border-[#38443C] hover:border-[#82B895]/50'
-                }
+                ${selectedStatusFilter === 'Ready'
+                  ? 'bg-[#24543A]/40 border-[#82B895] shadow-md shadow-[#24543A]/20'
+                  : 'bg-[#222825] border-[#38443C] hover:border-[#82B895]/50'}
               `}
             >
               <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
@@ -366,23 +413,21 @@ export default function KitchenDashboardPage({
                 <CheckCircle2 className="w-4 h-4 text-[#82B895]" />
               </div>
               <div className="text-2xl sm:text-3xl font-black text-[#82B895]">
-                {orderCounts.ready}
+                {isLoading ? '—' : orderCounts.ready}
               </div>
               <span className="text-[11px] text-[#A8B3AA]">Pass to runners</span>
             </button>
 
-            {/* Served Orders */}
+            {/* Served */}
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('Served')}
               className={`
                 p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
                 col-span-2 sm:col-span-1 focus:outline-none focus:ring-2 focus:ring-[#A8B3AA]
-                ${
-                  selectedStatusFilter === 'Served'
-                    ? 'bg-[#222825] border-[#F5F5F0] shadow-md'
-                    : 'bg-[#222825] border-[#38443C] hover:border-[#A8B3AA]'
-                }
+                ${selectedStatusFilter === 'Served'
+                  ? 'bg-[#222825] border-[#F5F5F0] shadow-md'
+                  : 'bg-[#222825] border-[#38443C] hover:border-[#A8B3AA]'}
               `}
             >
               <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
@@ -390,10 +435,11 @@ export default function KitchenDashboardPage({
                 <CheckCheck className="w-4 h-4 text-[#A8B3AA]" />
               </div>
               <div className="text-2xl sm:text-3xl font-black text-[#A8B3AA]">
-                {orderCounts.served}
+                {isLoading ? '—' : orderCounts.served}
               </div>
               <span className="text-[11px] text-[#A8B3AA]">Delivered to tables</span>
             </button>
+
           </div>
         </div>
       </section>
@@ -407,7 +453,6 @@ export default function KitchenDashboardPage({
             {/* Status Filter Tabs */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
               {[
-                { id: 'Active', label: 'Active', count: orderCounts.active },
                 { id: 'All', label: 'All', count: orderCounts.total },
                 { id: 'Pending', label: 'Pending', count: orderCounts.pending },
                 { id: 'Preparing', label: 'Preparing', count: orderCounts.preparing },
@@ -424,25 +469,21 @@ export default function KitchenDashboardPage({
                       inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold
                       border transition-all duration-150 shrink-0 cursor-pointer
                       focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                      ${
-                        isActive
-                          ? 'bg-[#24543A] text-[#F5F0E6] border-[#326B4B] shadow-sm'
-                          : 'bg-[#222825] text-[#A8B3AA] border-[#38443C] hover:text-[#F5F5F0] hover:border-[#82B895]/40'
-                      }
+                      ${isActive
+                        ? 'bg-[#24543A] text-[#F5F0E6] border-[#326B4B] shadow-sm'
+                        : 'bg-[#222825] text-[#A8B3AA] border-[#38443C] hover:text-[#F5F5F0] hover:border-[#82B895]/40'}
                     `}
                   >
                     <span>{tab.label}</span>
                     <span
                       className={`
                         inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded-full text-[10px] font-bold
-                        ${
-                          isActive
-                            ? 'bg-[#171A19] text-[#E5B86A]'
-                            : 'bg-[#171A19] text-[#A8B3AA]'
-                        }
+                        ${isActive
+                          ? 'bg-[#171A19] text-[#E5B86A]'
+                          : 'bg-[#171A19] text-[#A8B3AA]'}
                       `}
                     >
-                      {tab.count}
+                      {isLoading ? '…' : tab.count}
                     </span>
                   </button>
                 );
@@ -458,8 +499,8 @@ export default function KitchenDashboardPage({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Order #, Table, dish..."
-                  aria-label="Filter orders by order id, table number, or food name"
+                  placeholder="Order ID, Table, dish..."
+                  aria-label="Filter orders by order ID, table number, or food name"
                   className="
                     w-full pl-8 pr-8 py-1.5 rounded-xl bg-[#222825] border border-[#38443C]
                     text-xs text-[#F5F5F0] placeholder-[#A8B3AA] transition-colors
@@ -504,11 +545,9 @@ export default function KitchenDashboardPage({
                   aria-label="Switch to Grid View"
                   className={`
                     p-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer
-                    ${
-                      viewMode === 'grid'
-                        ? 'bg-[#24543A] text-[#F5F0E6] shadow-sm'
-                        : 'text-[#A8B3AA] hover:text-[#F5F5F0]'
-                    }
+                    ${viewMode === 'grid'
+                      ? 'bg-[#24543A] text-[#F5F0E6] shadow-sm'
+                      : 'text-[#A8B3AA] hover:text-[#F5F5F0]'}
                   `}
                 >
                   <LayoutGrid className="w-4 h-4" />
@@ -519,11 +558,9 @@ export default function KitchenDashboardPage({
                   aria-label="Switch to Columns (Kanban) View"
                   className={`
                     p-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer
-                    ${
-                      viewMode === 'columns'
-                        ? 'bg-[#24543A] text-[#F5F0E6] shadow-sm'
-                        : 'text-[#A8B3AA] hover:text-[#F5F5F0]'
-                    }
+                    ${viewMode === 'columns'
+                      ? 'bg-[#24543A] text-[#F5F0E6] shadow-sm'
+                      : 'text-[#A8B3AA] hover:text-[#F5F5F0]'}
                   `}
                 >
                   <Columns className="w-4 h-4" />
@@ -535,227 +572,248 @@ export default function KitchenDashboardPage({
       </section>
 
       {/* ─────────────────────────────────────────────────────────────
-          D. MAIN ORDER TICKET DISPLAY AREA
+          D. MAIN ORDER DISPLAY AREA
       ───────────────────────────────────────────────────────────── */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
-        {/* Active Filter Pill Bar (if filtering) */}
-        {(selectedStatusFilter !== 'Active' || searchQuery) && (
-          <div className="flex items-center justify-between flex-wrap gap-2 mb-4 pb-2 border-b border-[#38443C]">
-            <div className="flex items-center gap-2 text-xs text-[#A8B3AA]">
-              <span>Active filters:</span>
-              <span className="px-2.5 py-0.5 rounded-md bg-[#222825] border border-[#38443C] text-[#F5F5F0] font-medium">
-                Status: {selectedStatusFilter}
-              </span>
-              {searchQuery && (
-                <span className="px-2.5 py-0.5 rounded-md bg-[#222825] border border-[#38443C] text-[#E5B86A] font-medium">
-                  "{searchQuery}"
-                </span>
-              )}
-              <span className="text-[#82B895]">({filteredOrders.length} orders found)</span>
-            </div>
 
+        {/* ── D1. Loading skeleton ─────────────────────────────────── */}
+        {isLoading && (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <Loader2 className="w-10 h-10 text-[#82B895] animate-spin mb-4" />
+            <p className="text-sm text-[#A8B3AA] font-medium">Loading kitchen orders…</p>
+          </div>
+        )}
+
+        {/* ── D2. Fetch error state ────────────────────────────────── */}
+        {!isLoading && fetchError && (
+          <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-rose-950/20 border border-rose-800/40 my-6">
+            <AlertCircle className="w-10 h-10 text-rose-400 mb-4" />
+            <h3 className="text-base font-bold text-[#F5F5F0] mb-2">
+              Failed to load orders
+            </h3>
+            <p className="text-xs text-rose-300 max-w-md mb-6 leading-relaxed">
+              {fetchError}
+            </p>
             <button
               type="button"
-              onClick={() => {
-                setSelectedStatusFilter('Active');
-                setSearchQuery('');
-              }}
-              className="text-xs text-[#E5B86A] hover:underline cursor-pointer"
+              onClick={loadOrders}
+              className="
+                inline-flex items-center gap-2 px-4 py-2 rounded-xl
+                bg-rose-900/50 hover:bg-rose-900 text-rose-100 text-xs font-semibold
+                border border-rose-700/60 transition-colors cursor-pointer
+              "
             >
-              Reset to Active
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry</span>
             </button>
           </div>
         )}
 
-        {/* 1. GRID VIEW MODE */}
-        {viewMode === 'grid' && (
+        {/* ── D3. Orders display (grid + column views) ──────────────── */}
+        {!isLoading && !fetchError && (
           <>
-            {filteredOrders.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                {filteredOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    onStatusChange={handleStatusChange}
-                  />
-                ))}
-              </div>
-            ) : (
-              /* Empty state */
-              <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-[#38443C] my-6">
-                <div className="w-14 h-14 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center text-[#A8B3AA] mb-4">
-                  <Utensils className="w-7 h-7 text-[#E5B86A] opacity-60" />
+            {/* Active Filter Pill Bar */}
+            {(selectedStatusFilter !== 'All' || searchQuery) && (
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-4 pb-2 border-b border-[#38443C]">
+                <div className="flex items-center gap-2 text-xs text-[#A8B3AA]">
+                  <span>Active filters:</span>
+                  <span className="px-2.5 py-0.5 rounded-md bg-[#222825] border border-[#38443C] text-[#F5F5F0] font-medium">
+                    Status: {selectedStatusFilter}
+                  </span>
+                  {searchQuery && (
+                    <span className="px-2.5 py-0.5 rounded-md bg-[#222825] border border-[#38443C] text-[#E5B86A] font-medium">
+                      "{searchQuery}"
+                    </span>
+                  )}
+                  <span className="text-[#82B895]">({filteredOrders.length} orders found)</span>
                 </div>
-                <h3 className="text-lg font-bold text-[#F5F5F0] mb-1">
-                  No orders found
-                </h3>
-                <p className="text-xs text-[#A8B3AA] max-w-sm mb-5 leading-relaxed">
-                  {searchQuery
-                    ? `No orders match "${searchQuery}" in ${selectedStatusFilter} status.`
-                    : selectedStatusFilter === 'Active'
-                    ? 'All active orders are currently caught up! The kitchen is clear.'
-                    : `No orders currently in "${selectedStatusFilter}" status.`}
-                </p>
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedStatusFilter('Active');
-                    setSearchQuery('');
-                  }}
-                  className="
-                    inline-flex items-center gap-2 px-4 py-2 rounded-xl
-                    bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-xs font-semibold
-                    border border-[#326B4B] transition-colors cursor-pointer
-                  "
+                  onClick={() => { setSelectedStatusFilter('All'); setSearchQuery(''); }}
+                  className="text-xs text-[#E5B86A] hover:underline cursor-pointer"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Show All Active Orders</span>
+                  Clear filters
                 </button>
+              </div>
+            )}
+
+            {/* GRID VIEW */}
+            {viewMode === 'grid' && (
+              <>
+                {filteredOrders.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                    {filteredOrders.map((order) => (
+                      <OrderCard
+                        key={order.id}
+                        order={order}
+                        onStatusChange={handleStatusChange}
+                        isUpdating={!!updatingOrders[order.id]}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  /* Empty state */
+                  <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-[#38443C] my-6">
+                    <div className="w-14 h-14 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center mb-4">
+                      <Utensils className="w-7 h-7 text-[#E5B86A] opacity-60" />
+                    </div>
+                    <h3 className="text-lg font-bold text-[#F5F5F0] mb-1">
+                      {searchQuery ? 'No matching orders' : 'No orders found'}
+                    </h3>
+                    <p className="text-xs text-[#A8B3AA] max-w-sm mb-5 leading-relaxed">
+                      {searchQuery
+                        ? `No orders match "${searchQuery}"${selectedStatusFilter !== 'All' ? ` in "${selectedStatusFilter}" status` : ''}.`
+                        : selectedStatusFilter !== 'All'
+                        ? `No orders currently in "${selectedStatusFilter}" status.`
+                        : 'The kitchen queue is clear! No orders have been placed yet.'}
+                    </p>
+                    {(searchQuery || selectedStatusFilter !== 'All') && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedStatusFilter('All'); setSearchQuery(''); }}
+                        className="
+                          inline-flex items-center gap-2 px-4 py-2 rounded-xl
+                          bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-xs font-semibold
+                          border border-[#326B4B] transition-colors cursor-pointer
+                        "
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Clear filters</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* COLUMNS / KANBAN VIEW */}
+            {viewMode === 'columns' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+
+                {/* Column: Pending */}
+                <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
+                    <div className="flex items-center gap-2">
+                      <Flame className="w-4 h-4 text-[#E5B86A]" />
+                      <h3 className="text-sm font-bold text-[#F5F5F0]">Pending</h3>
+                    </div>
+                    <span
+                      style={{ backgroundColor: STATUS_BADGE_STYLES.Pending.bg, color: STATUS_BADGE_STYLES.Pending.text }}
+                      className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
+                    >
+                      {columnsData.Pending.length}
+                    </span>
+                  </div>
+                  <div className="space-y-3.5">
+                    {columnsData.Pending.map((order) => (
+                      <OrderCard
+                        key={order.id}
+                        order={order}
+                        onStatusChange={handleStatusChange}
+                        isUpdating={!!updatingOrders[order.id]}
+                      />
+                    ))}
+                    {columnsData.Pending.length === 0 && (
+                      <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">No pending orders</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Column: Preparing */}
+                <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
+                    <div className="flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-[#60A5FA]" />
+                      <h3 className="text-sm font-bold text-[#F5F5F0]">Preparing</h3>
+                    </div>
+                    <span
+                      style={{ backgroundColor: STATUS_BADGE_STYLES.Preparing.bg, color: STATUS_BADGE_STYLES.Preparing.text }}
+                      className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
+                    >
+                      {columnsData.Preparing.length}
+                    </span>
+                  </div>
+                  <div className="space-y-3.5">
+                    {columnsData.Preparing.map((order) => (
+                      <OrderCard
+                        key={order.id}
+                        order={order}
+                        onStatusChange={handleStatusChange}
+                        isUpdating={!!updatingOrders[order.id]}
+                      />
+                    ))}
+                    {columnsData.Preparing.length === 0 && (
+                      <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">No orders being prepped</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Column: Ready */}
+                <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-[#82B895]" />
+                      <h3 className="text-sm font-bold text-[#F5F5F0]">Ready for Pickup</h3>
+                    </div>
+                    <span
+                      style={{ backgroundColor: STATUS_BADGE_STYLES.Ready.bg, color: STATUS_BADGE_STYLES.Ready.text }}
+                      className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
+                    >
+                      {columnsData.Ready.length}
+                    </span>
+                  </div>
+                  <div className="space-y-3.5">
+                    {columnsData.Ready.map((order) => (
+                      <OrderCard
+                        key={order.id}
+                        order={order}
+                        onStatusChange={handleStatusChange}
+                        isUpdating={!!updatingOrders[order.id]}
+                      />
+                    ))}
+                    {columnsData.Ready.length === 0 && (
+                      <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">No orders ready for pickup</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Column: Served */}
+                <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
+                    <div className="flex items-center gap-2">
+                      <CheckCheck className="w-4 h-4 text-[#A8B3AA]" />
+                      <h3 className="text-sm font-bold text-[#F5F5F0]">Served</h3>
+                    </div>
+                    <span
+                      style={{ backgroundColor: STATUS_BADGE_STYLES.Served.bg, color: STATUS_BADGE_STYLES.Served.text }}
+                      className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
+                    >
+                      {columnsData.Served.length}
+                    </span>
+                  </div>
+                  <div className="space-y-3.5">
+                    {columnsData.Served.map((order) => (
+                      <OrderCard
+                        key={order.id}
+                        order={order}
+                        onStatusChange={handleStatusChange}
+                        isUpdating={!!updatingOrders[order.id]}
+                      />
+                    ))}
+                    {columnsData.Served.length === 0 && (
+                      <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">No completed orders</p>
+                    )}
+                  </div>
+                </div>
+
               </div>
             )}
           </>
         )}
-
-        {/* 2. COLUMNS / KANBAN VIEW MODE */}
-        {viewMode === 'columns' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
-            {/* Column 1: Pending */}
-            <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
-              <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
-                <div className="flex items-center gap-2">
-                  <Flame className="w-4 h-4 text-[#E5B86A]" />
-                  <h3 className="text-sm font-bold text-[#F5F5F0]">Pending</h3>
-                </div>
-                <span
-                  style={{
-                    backgroundColor: STATUS_BADGE_STYLES.Pending.bg,
-                    color: STATUS_BADGE_STYLES.Pending.text,
-                  }}
-                  className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
-                >
-                  {columnsData.Pending.length}
-                </span>
-              </div>
-              <div className="space-y-3.5">
-                {columnsData.Pending.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    onStatusChange={handleStatusChange}
-                  />
-                ))}
-                {columnsData.Pending.length === 0 && (
-                  <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">
-                    No pending orders
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Column 2: Preparing */}
-            <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
-              <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
-                <div className="flex items-center gap-2">
-                  <Bell className="w-4 h-4 text-[#60A5FA]" />
-                  <h3 className="text-sm font-bold text-[#F5F5F0]">Preparing</h3>
-                </div>
-                <span
-                  style={{
-                    backgroundColor: STATUS_BADGE_STYLES.Preparing.bg,
-                    color: STATUS_BADGE_STYLES.Preparing.text,
-                  }}
-                  className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
-                >
-                  {columnsData.Preparing.length}
-                </span>
-              </div>
-              <div className="space-y-3.5">
-                {columnsData.Preparing.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    onStatusChange={handleStatusChange}
-                  />
-                ))}
-                {columnsData.Preparing.length === 0 && (
-                  <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">
-                    No orders being prepped
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Column 3: Ready */}
-            <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
-              <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#82B895]" />
-                  <h3 className="text-sm font-bold text-[#F5F5F0]">Ready for Pickup</h3>
-                </div>
-                <span
-                  style={{
-                    backgroundColor: STATUS_BADGE_STYLES.Ready.bg,
-                    color: STATUS_BADGE_STYLES.Ready.text,
-                  }}
-                  className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
-                >
-                  {columnsData.Ready.length}
-                </span>
-              </div>
-              <div className="space-y-3.5">
-                {columnsData.Ready.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    onStatusChange={handleStatusChange}
-                  />
-                ))}
-                {columnsData.Ready.length === 0 && (
-                  <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">
-                    No orders ready for pickup
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Column 4: Served */}
-            <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
-              <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
-                <div className="flex items-center gap-2">
-                  <CheckCheck className="w-4 h-4 text-[#A8B3AA]" />
-                  <h3 className="text-sm font-bold text-[#F5F5F0]">Served</h3>
-                </div>
-                <span
-                  style={{
-                    backgroundColor: STATUS_BADGE_STYLES.Served.bg,
-                    color: STATUS_BADGE_STYLES.Served.text,
-                  }}
-                  className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
-                >
-                  {columnsData.Served.length}
-                </span>
-              </div>
-              <div className="space-y-3.5">
-                {columnsData.Served.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    onStatusChange={handleStatusChange}
-                  />
-                ))}
-                {columnsData.Served.length === 0 && (
-                  <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">
-                    No completed orders
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
       </main>
 
       {/* ─────────────────────────────────────────────────────────────
-          E. KITCHEN DASHBOARD FOOTER
+          E. FOOTER
       ───────────────────────────────────────────────────────────── */}
       <footer className="mt-auto border-t border-[#38443C] bg-[#222825] py-6 text-xs text-[#A8B3AA]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -779,13 +837,22 @@ export default function KitchenDashboardPage({
         <div
           role="status"
           aria-live="polite"
-          className="
+          className={`
             fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl
-            bg-[#24543A] text-[#F5F0E6] border border-[#326B4B] shadow-2xl animate-fade-in
-          "
+            border shadow-2xl transition-all duration-300
+            ${toast.type === 'error'
+              ? 'bg-rose-900/90 text-rose-100 border-rose-700'
+              : toast.type === 'success'
+              ? 'bg-[#24543A] text-[#F5F0E6] border-[#326B4B]'
+              : 'bg-[#222825] text-[#F5F5F0] border-[#38443C]'}
+          `}
         >
-          <Check className="w-4 h-4 text-[#82B895]" />
-          <p className="text-xs font-semibold leading-tight">{toast.message}</p>
+          {toast.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
+          ) : (
+            <Check className="w-4 h-4 text-[#82B895] shrink-0" />
+          )}
+          <p className="text-xs font-semibold leading-tight max-w-xs">{toast.message}</p>
         </div>
       )}
     </div>
