@@ -39,6 +39,10 @@ function normaliseFood(doc) {
   return {
     ...doc,
     id: String(doc._id),          // CartContext uses item.id for deduplication
+    // Ensure name and description are always strings — the search filter in
+    // MenuPage calls .toLowerCase() on both, which throws if either is null/undefined.
+    name: doc.name ? String(doc.name) : '',
+    description: doc.description ? String(doc.description) : '',
     price: Number(doc.price),
     isVeg: doc.isVeg === true,
     isPopular: doc.isPopular === true,
