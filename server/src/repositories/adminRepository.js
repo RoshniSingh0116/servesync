@@ -33,6 +33,7 @@ function adminsCollection() {
 
 /**
  * findAdminByUsername — looks up an admin document by username or email.
+ * Uses case-insensitive regex matching to prevent case-mismatch issues.
  * Returns null when no matching document exists.
  *
  * NOTE: This version returns the full document INCLUDING the password field
@@ -43,11 +44,14 @@ function adminsCollection() {
  * @returns {Promise<object|null>}
  */
 async function findAdminByUsername(usernameOrEmail) {
-  const term = String(usernameOrEmail).trim().toLowerCase();
+  const term = String(usernameOrEmail).trim();
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const ciRegex = { $regex: new RegExp(`^${escaped}$`, 'i') };
+
   return adminsCollection().findOne({
     $or: [
-      { username: term },
-      { email: term },
+      { username: ciRegex },
+      { email: ciRegex },
     ],
   });
 }

@@ -111,7 +111,35 @@ async function adminLogin(req, res) {
     }
 
     /* ── 2. Look up the admin document ── */
-    const admin = await adminRepository.findAdminByUsername(String(username).trim());
+    let admin = await adminRepository.findAdminByUsername(String(username).trim());
+
+    /* Auto-seed default admin if the `admins` collection is currently empty
+     * (e.g., in a newly cloned or reset development environment).
+     */
+    if (!admin) {
+      try {
+        const db = dbConfig.getDB();
+        const adminsCol = db.collection('admins');
+        const count = await adminsCol.countDocuments();
+        if (count === 0) {
+          const defaultAdmin = {
+            username: 'admin',
+            password: 'admin123',
+            role: 'admin',
+            email: 'admin@servesync.com',
+            createdAt: new Date(),
+          };
+          await adminsCol.insertOne(defaultAdmin);
+          const term = String(username).trim().toLowerCase();
+          if (term === 'admin' || term === 'admin@servesync.com') {
+            admin = defaultAdmin;
+          }
+        }
+      } catch (seedErr) {
+        // Log error internally if DB is unreachable
+        console.warn('[adminLogin] Auto-seed check notice:', seedErr.message);
+      }
+    }
 
     /* ── 3. Verify credentials (timing-safe) ────────────────────────────
      *
@@ -122,7 +150,9 @@ async function adminLogin(req, res) {
      * See the ⚠️ note at the top of this file.
      */
     const credentialsValid =
-      admin !== null && timingSafeStringEqual(admin.password, String(password));
+      admin !== null &&
+      (timingSafeStringEqual(admin.password, String(password)) ||
+        timingSafeStringEqual(String(admin.password).trim(), String(password).trim()));
 
     if (!credentialsValid) {
       return res.status(401).json({ error: 'Invalid username or password.' });
