@@ -14,6 +14,8 @@ import KitchenDashboardPage from './pages/admin/KitchenDashboardPage';
 // Admin Pages (Member 3)
 import AdminLoginPage from './pages/admin/AdminLoginPage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
+import AddFoodPage from './pages/admin/AddFoodPage';
+import ProtectedRoute from './components/admin/ProtectedRoute';
 
 function App() {
   return (
@@ -34,7 +36,22 @@ function App() {
             {/* Admin Management Routes (Member 3) */}
             <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
             <Route path="/admin/login" element={<AdminLoginPage />} />
-            <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+            <Route
+              path="/admin/dashboard"
+              element={
+                <ProtectedRoute>
+                  <AdminDashboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/add-food"
+              element={
+                <ProtectedRoute>
+                  <AddFoodPage />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Wildcard Fallback */}
             <Route path="*" element={<MenuPage />} />

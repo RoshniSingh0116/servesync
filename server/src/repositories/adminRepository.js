@@ -32,20 +32,24 @@ function adminsCollection() {
 /* ─── Read operations ─────────────────────────────────────────────────── */
 
 /**
- * findAdminByUsername — looks up an admin document by username.
+ * findAdminByUsername — looks up an admin document by username or email.
  * Returns null when no matching document exists.
  *
  * NOTE: This version returns the full document INCLUDING the password field
  * so the login controller can compare the submitted password.
  * The controller is responsible for stripping the password before responding.
  *
- * @param {string} username
+ * @param {string} usernameOrEmail
  * @returns {Promise<object|null>}
  */
-async function findAdminByUsername(username) {
-  return adminsCollection().findOne(
-    { username: username.trim().toLowerCase() }
-  );
+async function findAdminByUsername(usernameOrEmail) {
+  const term = String(usernameOrEmail).trim().toLowerCase();
+  return adminsCollection().findOne({
+    $or: [
+      { username: term },
+      { email: term },
+    ],
+  });
 }
 
 module.exports = {

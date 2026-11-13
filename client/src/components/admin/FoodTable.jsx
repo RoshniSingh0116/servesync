@@ -1,9 +1,10 @@
 /**
  * FoodTable.jsx
- * ServeSync — Admin Dashboard (Member 3)
+ * ServeSync — Admin Dashboard (Member 3, Commit 5)
  *
- * Responsive table / card list displaying all food items with
- * search, category filter, availability filter, toggle, edit, and delete actions.
+ * Responsive table and card view displaying food items with
+ * real-time search, category filter, availability toggle, and edit/delete actions.
+ * Displays live data retrieved from backend APIs with empty/loading states.
  */
 
 import { useState } from 'react';
@@ -18,33 +19,40 @@ import {
   UtensilsCrossed,
   SlidersHorizontal,
 } from 'lucide-react';
-import { CATEGORIES } from '../../mocks/mockData';
+import { FOOD_CATEGORIES } from './FoodForm';
 
-const FOOD_CATEGORIES = CATEGORIES.filter((c) => c !== 'All');
 const AVAIL_FILTER_OPTIONS = ['All', 'Available', 'Unavailable'];
 
 /**
  * FoodTable Component
  *
  * @param {Object}   props
- * @param {Array}    props.items          - All food items (with isAvailable field)
+ * @param {Array}    props.items          - All food items from GET /api/admin/foods
  * @param {Function} props.onEdit         - Called with item when edit is clicked
- * @param {Function} props.onDelete       - Called with item.id when delete is confirmed
- * @param {Function} props.onToggleAvail  - Called with item.id to toggle availability
+ * @param {Function} props.onDelete       - Called with item id when delete is confirmed
+ * @param {Function} props.onToggleAvail  - Called with item id to toggle availability
+ * @param {boolean}  [props.isLoading]    - Loading indicator
  */
-export default function FoodTable({ items = [], onEdit, onDelete, onToggleAvail }) {
+export default function FoodTable({
+  items = [],
+  onEdit,
+  onDelete,
+  onToggleAvail,
+  isLoading = false,
+}) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [availFilter, setAvailFilter] = useState('All');
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Derived filtered list
   const filtered = items.filter((item) => {
     const q = search.trim().toLowerCase();
     const matchesSearch =
       !q ||
-      item.name.toLowerCase().includes(q) ||
-      item.description.toLowerCase().includes(q);
+      item.name?.toLowerCase().includes(q) ||
+      item.description?.toLowerCase().includes(q);
     const matchesCategory =
       categoryFilter === 'All' || item.category === categoryFilter;
     const matchesAvail =
@@ -57,10 +65,15 @@ export default function FoodTable({ items = [], onEdit, onDelete, onToggleAvail 
     setDeleteConfirmId(id);
   }
 
-  function handleDeleteConfirmed() {
+  async function handleDeleteConfirmed() {
     if (deleteConfirmId) {
-      onDelete(deleteConfirmId);
-      setDeleteConfirmId(null);
+      try {
+        setIsDeleting(true);
+        await onDelete(deleteConfirmId);
+      } finally {
+        setIsDeleting(false);
+        setDeleteConfirmId(null);
+      }
     }
   }
 
@@ -145,13 +158,21 @@ export default function FoodTable({ items = [], onEdit, onDelete, onToggleAvail 
       </div>
 
       {/* ─── Results summary ─────────────────────────────────────── */}
-      <p className="text-xs text-[#A8B3AA] mb-3">
-        Showing{' '}
-        <span className="font-bold text-[#F5F5F0]">{filtered.length}</span>{' '}
-        of{' '}
-        <span className="font-bold text-[#F5F5F0]">{items.length}</span>{' '}
-        items
-      </p>
+      <div className="flex items-center justify-between mb-3 text-xs text-[#A8B3AA]">
+        <p>
+          Showing{' '}
+          <span className="font-bold text-[#F5F5F0]">{filtered.length}</span>{' '}
+          of{' '}
+          <span className="font-bold text-[#F5F5F0]">{items.length}</span>{' '}
+          items
+        </p>
+        {isLoading && (
+          <span className="flex items-center gap-1.5 text-[#82B895]">
+            <span className="w-3 h-3 border-2 border-[#82B895] border-t-transparent rounded-full animate-spin" />
+            Updating menu…
+          </span>
+        )}
+      </div>
 
       {/* ─── Table (desktop) / Cards (mobile) ────────────────────── */}
       {filtered.length === 0 ? (
@@ -172,30 +193,36 @@ export default function FoodTable({ items = [], onEdit, onDelete, onToggleAvail 
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#38443C]">
-                {filtered.map((item) => (
-                  <TableRow
-                    key={item.id}
-                    item={item}
-                    onEdit={onEdit}
-                    onDeleteClick={confirmDelete}
-                    onToggleAvail={onToggleAvail}
-                  />
-                ))}
+                {filtered.map((item) => {
+                  const itemId = item._id || item.id;
+                  return (
+                    <TableRow
+                      key={itemId}
+                      item={item}
+                      onEdit={onEdit}
+                      onDeleteClick={confirmDelete}
+                      onToggleAvail={onToggleAvail}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
           {/* Mobile Card List */}
           <div className="md:hidden space-y-3">
-            {filtered.map((item) => (
-              <MobileCard
-                key={item.id}
-                item={item}
-                onEdit={onEdit}
-                onDeleteClick={confirmDelete}
-                onToggleAvail={onToggleAvail}
-              />
-            ))}
+            {filtered.map((item) => {
+              const itemId = item._id || item.id;
+              return (
+                <MobileCard
+                  key={itemId}
+                  item={item}
+                  onEdit={onEdit}
+                  onDeleteClick={confirmDelete}
+                  onToggleAvail={onToggleAvail}
+                />
+              );
+            })}
           </div>
         </>
       )}
@@ -216,22 +243,24 @@ export default function FoodTable({ items = [], onEdit, onDelete, onToggleAvail 
               Delete Food Item?
             </h3>
             <p className="text-sm text-[#A8B3AA] text-center mb-6">
-              This item will be removed from the menu. This action cannot be undone.
+              This item will be permanently removed from the database and menu.
             </p>
             <div className="flex gap-3">
               <button
                 type="button"
+                disabled={isDeleting}
                 onClick={() => setDeleteConfirmId(null)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-[#F5F5F0] bg-[#171A19] border border-[#38443C] hover:border-[#82B895]/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-[#F5F5F0] bg-[#171A19] border border-[#38443C] hover:border-[#82B895]/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895] disabled:opacity-50"
               >
-                Keep Item
+                Cancel
               </button>
               <button
                 type="button"
+                disabled={isDeleting}
                 onClick={handleDeleteConfirmed}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-700 hover:bg-rose-600 active:scale-[0.98] transition-all duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-500"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-700 hover:bg-rose-600 active:scale-[0.98] transition-all duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-500 disabled:opacity-50"
               >
-                Yes, Delete
+                {isDeleting ? 'Deleting…' : 'Yes, Delete'}
               </button>
             </div>
           </div>
@@ -243,6 +272,8 @@ export default function FoodTable({ items = [], onEdit, onDelete, onToggleAvail 
 
 /* ─── TableRow (desktop) ──────────────────────────────────────────────── */
 function TableRow({ item, onEdit, onDeleteClick, onToggleAvail }) {
+  const itemId = item._id || item.id;
+
   return (
     <tr className="bg-[#222825] hover:bg-[#2A332E] transition-colors">
       {/* Item Name + Description */}
@@ -290,7 +321,7 @@ function TableRow({ item, onEdit, onDeleteClick, onToggleAvail }) {
       <td className="px-4 py-3 text-center">
         <button
           type="button"
-          onClick={() => onToggleAvail(item.id)}
+          onClick={() => onToggleAvail(itemId)}
           aria-label={`${item.isAvailable ? 'Mark unavailable' : 'Mark available'}: ${item.name}`}
           title={item.isAvailable ? 'Click to mark unavailable' : 'Click to mark available'}
           className="inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895] rounded"
@@ -323,7 +354,7 @@ function TableRow({ item, onEdit, onDeleteClick, onToggleAvail }) {
           </button>
           <button
             type="button"
-            onClick={() => onDeleteClick(item.id)}
+            onClick={() => onDeleteClick(itemId)}
             aria-label={`Delete ${item.name}`}
             className="p-2 rounded-lg text-[#A8B3AA] hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-700/50 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-500"
           >
@@ -337,6 +368,8 @@ function TableRow({ item, onEdit, onDeleteClick, onToggleAvail }) {
 
 /* ─── MobileCard ──────────────────────────────────────────────────────── */
 function MobileCard({ item, onEdit, onDeleteClick, onToggleAvail }) {
+  const itemId = item._id || item.id;
+
   return (
     <div className="bg-[#222825] border border-[#38443C] rounded-xl p-4">
       <div className="flex items-start gap-3 mb-3">
@@ -376,7 +409,7 @@ function MobileCard({ item, onEdit, onDeleteClick, onToggleAvail }) {
       <div className="flex items-center justify-between pt-3 border-t border-[#38443C]">
         <button
           type="button"
-          onClick={() => onToggleAvail(item.id)}
+          onClick={() => onToggleAvail(itemId)}
           aria-label={`${item.isAvailable ? 'Mark unavailable' : 'Mark available'}: ${item.name}`}
           className="inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895] rounded"
         >
@@ -402,7 +435,7 @@ function MobileCard({ item, onEdit, onDeleteClick, onToggleAvail }) {
           </button>
           <button
             type="button"
-            onClick={() => onDeleteClick(item.id)}
+            onClick={() => onDeleteClick(itemId)}
             aria-label={`Delete ${item.name}`}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-950/40 border border-rose-700/50 hover:bg-rose-950/60 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-500"
           >
@@ -441,12 +474,12 @@ function EmptyState({ hasFilter, onClear }) {
         <UtensilsCrossed className="w-7 h-7 text-[#A8B3AA] opacity-50" />
       </div>
       <h3 className="text-lg font-bold text-[#F5F5F0] mb-2">
-        {hasFilter ? 'No items match your filters' : 'No food items yet'}
+        {hasFilter ? 'No items match your filters' : 'No food items in the database'}
       </h3>
       <p className="text-sm text-[#A8B3AA] max-w-xs mb-5">
         {hasFilter
           ? 'Try adjusting your search or filter criteria.'
-          : 'Click "Add Food Item" to add your first dish.'}
+          : 'Click "Add Food Item" to insert your first dish into MongoDB.'}
       </p>
       {hasFilter && (
         <button
