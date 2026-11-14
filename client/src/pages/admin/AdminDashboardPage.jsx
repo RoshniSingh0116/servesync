@@ -876,9 +876,13 @@ function OrdersSection({ orders, loadingOrders, ordersError, onRetryOrders, onGo
         tableStr.includes(q) ||
         itemsStr.includes(q);
 
+      const orderStatusNorm = order.status ? order.status.toLowerCase() : '';
+      const filterNorm = statusFilter.toLowerCase();
       const matchesStatus =
         statusFilter === 'All' ||
-        order.status?.toLowerCase() === statusFilter.toLowerCase();
+        orderStatusNorm === filterNorm ||
+        ((filterNorm === 'served' || filterNorm === 'completed') &&
+          (orderStatusNorm === 'served' || orderStatusNorm === 'completed'));
 
       return matchesSearch && matchesStatus;
     });
