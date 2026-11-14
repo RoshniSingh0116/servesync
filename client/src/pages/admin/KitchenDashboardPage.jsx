@@ -27,7 +27,6 @@ import {
 } from '../../mocks/mockOrders';
 import {
   fetchAllKitchenOrders,
-  fetchKitchenOrdersByStatus,
   patchKitchenOrderStatus,
 } from '../../api/kitchenApi';
 
@@ -218,10 +217,6 @@ export default function KitchenDashboardPage() {
       Served: base.filter((o) => o.status === 'Served'),
     };
   }, [orders, filteredOrders, searchQuery]);
-
-  /* ── Helpers ──────────────────────────────────────────────────────────── */
-  const shortId = (id) =>
-    typeof id === 'string' && id.length > 10 ? id.slice(-6) : id;
 
   /* ── Render ───────────────────────────────────────────────────────────── */
   return (
