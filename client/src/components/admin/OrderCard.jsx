@@ -29,11 +29,12 @@ function formatOrderTime(dateString) {
  * Displays a single kitchen order ticket with table number, items, special instructions,
  * time elapsed, and actionable status transition button.
  *
- * @param {Object} props
- * @param {Object} props.order - Order object
- * @param {Function} props.onStatusChange - Callback (orderId, nextStatus) => void
+ * @param {Object}   props
+ * @param {Object}   props.order          Order object (normalised; uses `id` and `total`)
+ * @param {Function} props.onStatusChange Callback (orderId, nextStatus) => void
+ * @param {boolean}  [props.isUpdating]   Whether this specific order is being updated
  */
-export default function OrderCard({ order, onStatusChange }) {
+export default function OrderCard({ order, onStatusChange, isUpdating = false }) {
   if (!order) return null;
 
   const { id, tableNumber, items = [], total, status = 'Pending', createdAt, specialInstructions } = order;
@@ -59,6 +60,7 @@ export default function OrderCard({ order, onStatusChange }) {
       data-testid={`order-card-${id}`}
       className={`
         flex flex-col bg-[#222825] rounded-2xl border transition-all duration-200 overflow-hidden shadow-lg
+        ${isUpdating ? 'opacity-70 pointer-events-none' : ''}
         ${
           status === 'Pending'
             ? 'border-[#E5B86A]/50 hover:border-[#E5B86A]'
@@ -78,7 +80,7 @@ export default function OrderCard({ order, onStatusChange }) {
           {/* Order ID & Table Number */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xl sm:text-2xl font-black text-[#F5F5F0] tracking-tight">
-              #{id}
+              #{typeof id === 'string' && id.length > 10 ? id.slice(-6) : id}
             </span>
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#171A19] border border-[#38443C]">
               <span className="text-[10px] uppercase font-bold text-[#A8B3AA] tracking-wider">
@@ -214,6 +216,7 @@ export default function OrderCard({ order, onStatusChange }) {
             status={status}
             orderId={id}
             tableNumber={tableNumber}
+            isLoading={isUpdating}
             onStatusChange={(nextStatus) => {
               if (typeof onStatusChange === 'function') {
                 onStatusChange(id, nextStatus);

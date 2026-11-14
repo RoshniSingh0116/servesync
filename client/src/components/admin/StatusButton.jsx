@@ -1,21 +1,23 @@
-import { ChefHat, Bell, CheckCheck, Check } from 'lucide-react';
+import { ChefHat, Bell, CheckCheck, Check, Loader2 } from 'lucide-react';
 import { STATUS_TRANSITIONS } from '../../mocks/mockOrders';
 
 /**
  * StatusButton Component
  *
- * Provides a working frontend-only button to progress an order through:
+ * Provides a working button to progress an order through:
  * Pending → Preparing → Ready → Served
  *
  * Enforces valid linear status transitions and provides accessible labels.
+ * Displays a loading spinner while a status update is in progress.
  *
- * @param {Object} props
- * @param {string} props.status - Current order status ('Pending' | 'Preparing' | 'Ready' | 'Served')
- * @param {Function} props.onStatusChange - Callback receiving the valid next status string
- * @param {string|number} [props.orderId] - Order ID for accessible aria-label
- * @param {string|number} [props.tableNumber] - Table number for accessible context
- * @param {boolean} [props.disabled] - Whether button is disabled
- * @param {string} [props.className] - Additional styling classes
+ * @param {Object}   props
+ * @param {string}   props.status          Current order status ('Pending' | 'Preparing' | 'Ready' | 'Served')
+ * @param {Function} props.onStatusChange  Callback receiving the valid next status string
+ * @param {string|number} [props.orderId]      Order ID for accessible aria-label
+ * @param {string|number} [props.tableNumber]  Table number for accessible context
+ * @param {boolean}  [props.disabled]      Whether button is externally disabled
+ * @param {boolean}  [props.isLoading]     Whether a status update is currently in progress
+ * @param {string}   [props.className]     Additional styling classes
  */
 export default function StatusButton({
   status,
@@ -23,6 +25,7 @@ export default function StatusButton({
   orderId,
   tableNumber,
   disabled = false,
+  isLoading = false,
   className = '',
 }) {
   // Configuration mapping for each status action
@@ -71,11 +74,11 @@ export default function StatusButton({
 
   const IconComponent = currentConfig.icon;
   const isCompleted = status === 'Served' || !currentConfig.next;
-  const isDisabled = disabled || isCompleted;
+  const isDisabled = disabled || isCompleted || isLoading;
 
   const handleClick = (e) => {
     e.stopPropagation();
-    // Strictly prevent invalid transitions
+    // Strictly prevent invalid transitions and double-submissions
     if (!isDisabled && currentConfig.next && typeof onStatusChange === 'function') {
       onStatusChange(currentConfig.next);
     }
@@ -86,20 +89,26 @@ export default function StatusButton({
       type="button"
       onClick={handleClick}
       disabled={isDisabled}
-      aria-label={currentConfig.ariaLabel}
+      aria-label={isLoading ? `Updating Order #${orderId}…` : currentConfig.ariaLabel}
+      aria-busy={isLoading}
       data-testid={`status-btn-${orderId || 'order'}`}
       className={`
         inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
         text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer
         focus:outline-none focus:ring-2 focus:ring-[#82B895] focus:ring-offset-2 focus:ring-offset-[#222825]
         disabled:cursor-not-allowed disabled:active:scale-100
+        ${isLoading ? 'opacity-70' : ''}
         ${currentConfig.classes}
         ${className}
       `}
     >
-      <IconComponent className="w-4 h-4 shrink-0" />
-      <span>{currentConfig.label}</span>
-      {currentConfig.next && (
+      {isLoading ? (
+        <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+      ) : (
+        <IconComponent className="w-4 h-4 shrink-0" />
+      )}
+      <span>{isLoading ? 'Updating…' : currentConfig.label}</span>
+      {!isLoading && currentConfig.next && (
         <span className="text-[10px] opacity-75 hidden sm:inline ml-0.5">
           → {currentConfig.next}
         </span>
