@@ -2,7 +2,14 @@
  * kitchenApi.js — ServeSync (Member 4)
  *
  * Axios-based API client for the Kitchen Dashboard.
- * Connects to the existing backend at http://localhost:5001.
+ *
+ * Uses the Vite proxy-compatible base URL so the same code works in
+ * development (Vite dev server proxies /api → http://localhost:5001 per
+ * vite.config.js) and in production (VITE_API_BASE_URL env var or same-origin).
+ *
+ * This is consistent with how orderApi.js and api.js are configured:
+ *   - In development: BASE_URL is '' (empty), Vite proxy forwards /api/* to backend
+ *   - In production: set VITE_API_BASE_URL to the deployed backend origin
  *
  * All endpoints mirror the backend Kitchen API contract defined in:
  *   server/src/routes/kitchenRoutes.js
@@ -25,12 +32,15 @@ import axios from 'axios';
 
 /* ─── Axios instance ──────────────────────────────────────────────────────── */
 
-const BASE_URL = 'http://localhost:5001';
+// In development, Vite proxies /api → http://localhost:5001 (see vite.config.js).
+// In production, set VITE_API_BASE_URL to the deployed backend origin, or leave
+// it empty for same-origin serving where /api routes directly to the backend.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 const kitchenClient = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 10000,
+  timeout: 15000,
 });
 
 /* ─── Status mapping helpers ──────────────────────────────────────────────── */
@@ -69,7 +79,7 @@ export function normalizeOrder(raw) {
   return {
     ...raw,
     // Map MongoDB _id to the string `id` the frontend uses
-    id: raw._id ? String(raw._id) : raw.id,
+    id: raw._id ? String(raw._id) : (raw.id ?? null),
     // Ensure `total` is always present (OrderCard reads it)
     total: raw.total ?? raw.totalAmount ?? null,
   };
@@ -86,9 +96,13 @@ export function normalizeOrder(raw) {
  * @throws  {Error}              With a user-friendly `.message` on failure.
  */
 export async function fetchAllKitchenOrders() {
-  const response = await kitchenClient.get('/api/kitchen/orders');
-  const { orders = [] } = response.data;
-  return orders.map(normalizeOrder);
+  try {
+    const response = await kitchenClient.get('/api/kitchen/orders');
+    const { orders = [] } = response.data;
+    return orders.map(normalizeOrder);
+  } catch (err) {
+    throw normaliseError(err);
+  }
 }
 
 /**
@@ -103,18 +117,21 @@ export async function fetchAllKitchenOrders() {
  * @throws  {Error}
  */
 export async function fetchKitchenOrdersByStatus(titleCaseStatus) {
-  const apiStatus = toApiStatus(titleCaseStatus);
-  const response = await kitchenClient.get(`/api/kitchen/orders/status/${apiStatus}`);
-  const { orders = [] } = response.data;
-  return orders.map(normalizeOrder);
+  try {
+    const apiStatus = toApiStatus(titleCaseStatus);
+    const response = await kitchenClient.get(`/api/kitchen/orders/status/${apiStatus}`);
+    const { orders = [] } = response.data;
+    return orders.map(normalizeOrder);
+  } catch (err) {
+    throw normaliseError(err);
+  }
 }
 
 /**
  * patchKitchenOrderStatus — PATCH /api/kitchen/orders/:id/status
  *
  * Sends a status-update request to the backend.
- * Validates the transition server-side; the backend enforces the strict
- * one-step-at-a-time forward-only lifecycle.
+ * The backend enforces the strict one-step-at-a-time forward-only lifecycle.
  *
  * @param {string} orderId          MongoDB ObjectId string of the order.
  * @param {string} nextTitleCase    Title-case next status (e.g. 'Preparing').
@@ -124,12 +141,53 @@ export async function fetchKitchenOrdersByStatus(titleCaseStatus) {
  *                                  (invalid transitions, terminal orders, etc.)
  */
 export async function patchKitchenOrderStatus(orderId, nextTitleCase) {
-  const apiStatus = toApiStatus(nextTitleCase);
-  const response = await kitchenClient.patch(
-    `/api/kitchen/orders/${orderId}/status`,
-    { status: apiStatus }
-  );
-  const { order } = response.data;
-  return normalizeOrder(order);
+  try {
+    const apiStatus = toApiStatus(nextTitleCase);
+    const response = await kitchenClient.patch(
+      `/api/kitchen/orders/${orderId}/status`,
+      { status: apiStatus }
+    );
+    const { order } = response.data;
+    return normalizeOrder(order);
+  } catch (err) {
+    throw normaliseError(err);
+  }
 }
 
+/* ─── Error normalisation ─────────────────────────────────────────────────── */
+
+/**
+ * normaliseError — extracts a human-readable message from an Axios error.
+ *
+ * Priority:
+ *  1. Backend JSON `error` field (kitchen API standard shape)
+ *  2. Backend JSON `message` field
+ *  3. Network / timeout message
+ *
+ * @param {import('axios').AxiosError} err
+ * @returns {Error}
+ */
+function normaliseError(err) {
+  // If the error already has a clean `.message` and no response (re-thrown),
+  // return it as-is to avoid double-wrapping.
+  if (err.response?.data) {
+    const { error, message } = err.response.data;
+    const text = error || message || `Server error (${err.response.status})`;
+    const e = new Error(text);
+    e.status = err.response.status;
+    e.originalError = err;
+    return e;
+  }
+
+  if (err.code === 'ECONNABORTED') {
+    return new Error('Request timed out. Please check your connection and try again.');
+  }
+
+  if (!err.response) {
+    return new Error(
+      'Unable to reach the server. Ensure the backend is running on port 5001.'
+    );
+  }
+
+  return new Error(err.message || 'An unexpected error occurred.');
+}
