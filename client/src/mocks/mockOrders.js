@@ -1,19 +1,3 @@
-/**
- * ServeSync Mock Orders Data — Kitchen Dashboard (Phase 1 / Member 4)
- *
- * Compatible with future checkout structure from Member 2:
- * {
- *   id: 101,
- *   tableNumber: 5,
- *   items: [
- *     { foodId: 'item-1', name: 'Paneer Pizza', price: 249, quantity: 2 }
- *   ],
- *   total: 498,
- *   status: 'Pending', // 'Pending' | 'Preparing' | 'Ready' | 'Served'
- *   createdAt: '2026-10-25T21:20:00.000Z',
- *   specialInstructions: '...'
- * }
- */
 
 export const ORDER_STATUSES = {
   PENDING: 'Pending',
@@ -26,16 +10,9 @@ export const STATUS_TRANSITIONS = {
   Pending: 'Preparing',
   Preparing: 'Ready',
   Ready: 'Served',
-  Served: null, // End of workflow
+  Served: null,
 };
 
-/**
- * Exact badge colors as specified in ServeSync Design System:
- * - Pending:   bg #F6E7C3, text #79520C
- * - Preparing: bg #DCE8F8, text #234D83
- * - Ready:     bg #DCEFE0, text #24543A
- * - Served:    bg #E5E7E5, text #37413A
- */
 export const STATUS_BADGE_STYLES = {
   Pending: {
     bg: '#F6E7C3',
@@ -63,10 +40,6 @@ export const STATUS_BADGE_STYLES = {
   },
 };
 
-/**
- * Realistic sample orders spanning all 4 lifecycle states.
- * Uses items from the actual restaurant menu (MENU_ITEMS in mockData.js).
- */
 export const INITIAL_MOCK_ORDERS = [
   {
     id: 101,
@@ -93,7 +66,7 @@ export const INITIAL_MOCK_ORDERS = [
     ],
     total: 1480,
     status: 'Pending',
-    createdAt: new Date(Date.now() - 6 * 60 * 1000).toISOString(), // 6 mins ago
+    createdAt: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
     specialInstructions: 'Mild spice only, please. No extra chili on Paneer.',
   },
   {
@@ -121,7 +94,7 @@ export const INITIAL_MOCK_ORDERS = [
     ],
     total: 1240,
     status: 'Pending',
-    createdAt: new Date(Date.now() - 14 * 60 * 1000).toISOString(), // 14 mins ago
+    createdAt: new Date(Date.now() - 14 * 60 * 1000).toISOString(),
     specialInstructions: 'Crispy crust on the Margherita pizza.',
   },
   {
@@ -149,7 +122,7 @@ export const INITIAL_MOCK_ORDERS = [
     ],
     total: 1480,
     status: 'Preparing',
-    createdAt: new Date(Date.now() - 22 * 60 * 1000).toISOString(), // 22 mins ago
+    createdAt: new Date(Date.now() - 22 * 60 * 1000).toISOString(),
     specialInstructions: 'Medium-well lamb patties. No balsamic glaze on burger #2.',
   },
   {
@@ -171,7 +144,7 @@ export const INITIAL_MOCK_ORDERS = [
     ],
     total: 960,
     status: 'Preparing',
-    createdAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(), // 18 mins ago
+    createdAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
     specialInstructions: 'Extra mint chutney and lemon wedges on the side.',
   },
   {
@@ -193,7 +166,7 @@ export const INITIAL_MOCK_ORDERS = [
     ],
     total: 1400,
     status: 'Ready',
-    createdAt: new Date(Date.now() - 32 * 60 * 1000).toISOString(), // 32 mins ago
+    createdAt: new Date(Date.now() - 32 * 60 * 1000).toISOString(),
     specialInstructions: 'Warm dessert with ice cream on the side.',
   },
   {
@@ -215,7 +188,7 @@ export const INITIAL_MOCK_ORDERS = [
     ],
     total: 830,
     status: 'Ready',
-    createdAt: new Date(Date.now() - 28 * 60 * 1000).toISOString(), // 28 mins ago
+    createdAt: new Date(Date.now() - 28 * 60 * 1000).toISOString(),
     specialInstructions: null,
   },
   {
@@ -237,7 +210,7 @@ export const INITIAL_MOCK_ORDERS = [
     ],
     total: 470,
     status: 'Served',
-    createdAt: new Date(Date.now() - 48 * 60 * 1000).toISOString(), // 48 mins ago
+    createdAt: new Date(Date.now() - 48 * 60 * 1000).toISOString(),
     specialInstructions: null,
   },
   {
@@ -265,7 +238,7 @@ export const INITIAL_MOCK_ORDERS = [
     ],
     total: 1190,
     status: 'Served',
-    createdAt: new Date(Date.now() - 65 * 60 * 1000).toISOString(), // 65 mins ago
+    createdAt: new Date(Date.now() - 65 * 60 * 1000).toISOString(),
     specialInstructions: 'Severe peanut/nut allergy for guest at seat 2.',
   },
 ];

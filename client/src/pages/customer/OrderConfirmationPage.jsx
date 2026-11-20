@@ -1,18 +1,3 @@
-/**
- * OrderConfirmationPage — ServeSync Member 2
- * Displays the confirmed order details after a successful order placement.
- *
- * Data sources (priority order):
- *  1. location.state.confirmedOrder  — real order object returned by the backend
- *     POST /api/orders response, passed here from CheckoutPage on the happy path.
- *  2. In-memory OrderContext lookup (getOrderById)  — retains compatibility with
- *     mock-flow tests and deep-link navigation where state is unavailable.
- *  3. Live GET /api/orders/:orderId fetch  — called only if neither of the above
- *     has the order, e.g. after a hard-refresh on the confirmation URL.
- *
- * Commit 5: Connected to real backend.  Displays server-confirmed totalAmount.
- */
-
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -28,7 +13,6 @@ import {
 import { useOrders } from '../../context/OrderContext';
 import { getOrderById as fetchOrderById } from '../../api/orderApi';
 
-/* ─── Helpers ────────────────────────────────────────────── */
 function getTableFromSearch(search) {
   const params = new URLSearchParams(search);
   const t = params.get('table');
@@ -46,13 +30,6 @@ function formatTime(isoString) {
   }
 }
 
-/**
- * Normalises an order object so the page can render regardless of whether
- * it came from location.state (backend shape) or OrderContext (in-memory shape).
- *
- * Backend shape:  { _id, tableNumber, items: [{ foodId, name, price, quantity, subtotal }], totalAmount, status, createdAt }
- * Context shape:  { id, tableNumber, items: [{ foodId, name, price, quantity }], totalAmount, total, status, createdAt }
- */
 function normaliseOrder(raw) {
   if (!raw) return null;
   return {
@@ -71,18 +48,17 @@ function normaliseOrder(raw) {
   };
 }
 
-/* ─── Status badge ───────────────────────────────────────── */
 function StatusBadge({ status }) {
   const colours = {
-    Pending: 'bg-amber-900/40 text-amber-300 border-amber-700/60',
-    Preparing: 'bg-blue-900/40 text-blue-300 border-blue-700/60',
-    Ready: 'bg-emerald-900/40 text-emerald-300 border-emerald-700/60',
-    Served: 'bg-[#222825] text-[#A8B3AA] border-[#38443C]',
+    Pending: 'bg-amber-50 text-amber-800 border-amber-200',
+    Preparing: 'bg-blue-50 text-blue-800 border-blue-200',
+    Ready: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    Served: 'bg-[#EFF1EA] text-[#74796F] border-[#E6E8E1]',
   };
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
-        colours[status] ?? colours['Pending']
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
+        colours[status] ?? colours.Pending
       }`}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
@@ -91,33 +67,30 @@ function StatusBadge({ status }) {
   );
 }
 
-/* ─── Fallback when order not found ─────────────────────── */
 function OrderNotFound({ onBackToMenu }) {
   return (
-    <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
-      <div className="w-20 h-20 rounded-3xl bg-[#222825] border border-[#38443C] flex items-center justify-center mb-6">
-        <UtensilsCrossed className="w-9 h-9 text-[#38443C]" />
+    <div className="flex flex-col items-center justify-center py-20 px-6 text-center max-w-sm mx-auto">
+      <div className="w-16 h-16 rounded-xl bg-white border border-[#E6E8E1] flex items-center justify-center mb-4 shadow-xs">
+        <UtensilsCrossed className="w-7 h-7 text-[#74796F]" />
       </div>
-      <h2 className="text-xl font-black text-[#F5F5F0] mb-2">
+      <h2 className="text-xl font-bold text-[#20251F] mb-1.5">
         Order Not Found
       </h2>
-      <p className="text-sm text-[#A8B3AA] max-w-xs leading-relaxed mb-8">
-        We couldn't locate this order. It may have been placed before this
-        session, or the server may be temporarily unavailable.
+      <p className="text-xs text-[#74796F] leading-relaxed mb-6">
+        We couldn&apos;t locate this order. It may have been placed in another session.
       </p>
       <button
         type="button"
         onClick={onBackToMenu}
-        className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-sm font-bold border border-[#326B4B] transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-[#526B50] hover:bg-[#40563F] text-white text-xs font-semibold transition-colors cursor-pointer"
       >
         <ArrowLeft className="w-4 h-4" />
-        Back to Menu
+        Return to Menu
       </button>
     </div>
   );
 }
 
-/* ─── Page ───────────────────────────────────────────────── */
 export default function OrderConfirmationPage() {
   const { orderId } = useParams();
   const { search, state: locationState } = useLocation();
@@ -127,28 +100,24 @@ export default function OrderConfirmationPage() {
   const { getOrderById: getFromContext } = useOrders();
 
   const [order, setOrder] = useState(() => {
-    // Priority 1: order passed directly from CheckoutPage via location.state
     if (locationState?.confirmedOrder) {
       return normaliseOrder(locationState.confirmedOrder);
     }
-    // Priority 2: in-memory OrderContext (mock flow / previous commits)
     const contextOrder = getFromContext(orderId);
     return contextOrder ? normaliseOrder(contextOrder) : null;
   });
 
-  const [isFetching, setIsFetching] = useState(!order); // only fetch if not already resolved
+  const [isFetching, setIsFetching] = useState(!order);
   const [fetchError, setFetchError] = useState('');
 
   const handleBackToMenu = () => navigate(`/menu?table=${tableNumber}`);
 
   useEffect(() => {
-    // If we already have the order (from state or context) skip the fetch
     if (order) {
       setIsFetching(false);
       return;
     }
 
-    // Priority 3: fetch from backend (hard-refresh scenario)
     if (!orderId) {
       setIsFetching(false);
       return;
@@ -179,212 +148,174 @@ export default function OrderConfirmationPage() {
   }, [orderId, order]);
 
   return (
-    <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] flex flex-col">
-      {/* ── Header ── */}
-      <header className="sticky top-0 z-40 bg-[#171A19]/95 backdrop-blur-md border-b border-[#38443C]">
+    <div className="min-h-screen bg-[#F7F7F4] text-[#20251F] flex flex-col font-sans">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-[#E6E8E1]">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-4">
           <button
             type="button"
             onClick={handleBackToMenu}
             aria-label="Back to menu"
-            className="p-2 rounded-xl bg-[#222825] border border-[#38443C] hover:border-[#82B895] text-[#A8B3AA] hover:text-[#F5F5F0] transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+            className="p-2 rounded-md bg-[#FAFBF8] border border-[#E6E8E1] hover:bg-[#EFF1EA] text-[#74796F] hover:text-[#20251F] transition-colors cursor-pointer"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="flex-1">
-            <span className="text-base font-black text-[#F5F5F0]">
-              Serve<span className="text-[#E5B86A]">Sync</span>
+            <span className="text-base font-bold text-[#20251F] block leading-none">
+              Dinning Room
             </span>
-            <span className="text-xs text-[#A8B3AA] block leading-none">
+            <span className="text-xs text-[#74796F] block leading-none mt-0.5">
               Order Confirmation
             </span>
           </div>
         </div>
       </header>
 
-      {/* ── Body ── */}
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8 space-y-6">
-
-        {/* Loading state */}
         {isFetching && (
-          <div className="flex flex-col items-center justify-center py-24 gap-4">
-            <Loader2 className="w-10 h-10 text-[#82B895] animate-spin" />
-            <p className="text-sm text-[#A8B3AA]">Loading your order…</p>
+          <div className="flex flex-col items-center justify-center py-24 gap-3">
+            <Loader2 className="w-8 h-8 text-[#526B50] animate-spin" />
+            <p className="text-xs text-[#74796F]">Retrieving confirmed order…</p>
           </div>
         )}
 
-        {/* Fetch error */}
         {!isFetching && fetchError && (
           <div
             role="alert"
-            className="flex items-start gap-3 p-4 bg-rose-950/40 border border-rose-800/60 rounded-xl text-sm text-rose-300"
+            className="flex items-start gap-3 p-4 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700"
           >
-            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-500" />
             <p>{fetchError}</p>
           </div>
         )}
 
-        {/* Order not found */}
         {!isFetching && !fetchError && !order && (
           <OrderNotFound onBackToMenu={handleBackToMenu} />
         )}
 
-        {/* Order details */}
         {!isFetching && order && (
           <>
-            {/* Success hero */}
-            <div className="flex flex-col items-center text-center py-6">
-              <div className="relative mb-5">
-                <div className="w-20 h-20 rounded-full bg-[#24543A]/20 border-2 border-[#326B4B] flex items-center justify-center">
-                  <CheckCircle2 className="w-10 h-10 text-[#82B895]" />
-                </div>
-                {/* Decorative rings */}
-                <div className="absolute inset-0 rounded-full border-2 border-[#24543A]/30 scale-125 animate-ping opacity-30" />
+            <div className="flex flex-col items-center text-center py-4">
+              <div className="w-16 h-16 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mb-3">
+                <CheckCircle2 className="w-8 h-8 text-emerald-600" />
               </div>
-              <h1 className="text-2xl sm:text-3xl font-black text-[#F5F5F0] mb-2">
-                Order Placed!
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-[#20251F] mb-1">
+                Order Received!
               </h1>
-              <p className="text-sm text-[#A8B3AA] max-w-xs leading-relaxed">
-                Your order has been received and is being prepared at the kitchen.
+              <p className="text-xs sm:text-sm text-[#74796F] max-w-sm leading-relaxed">
+                Your order is confirmed and sent directly to the kitchen for preparation.
               </p>
             </div>
 
-            {/* Order metadata */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {/* Order ID */}
-              <div className="col-span-2 sm:col-span-1 bg-[#222825] border border-[#38443C] rounded-2xl p-4 flex flex-col gap-1">
-                <div className="flex items-center gap-1.5 text-xs text-[#A8B3AA] mb-1">
+              <div className="bg-white border border-[#E6E8E1] rounded-xl p-3.5 flex flex-col gap-1 shadow-xs">
+                <div className="flex items-center gap-1.5 text-xs text-[#74796F]">
                   <Hash className="w-3.5 h-3.5" />
                   Order ID
                 </div>
-                <span className="text-sm font-black text-[#E5B86A] break-all leading-snug">
-                  {order.id.length > 12
-                    ? `…${order.id.slice(-8)}`
-                    : `#${order.id}`}
+                <span className="text-sm font-bold text-[#526B50] truncate">
+                  #{order.id.slice(-6)}
                 </span>
               </div>
 
-              {/* Table */}
-              <div className="bg-[#222825] border border-[#38443C] rounded-2xl p-4 flex flex-col gap-1">
-                <div className="text-xs text-[#A8B3AA] mb-1">Table</div>
-                <span className="text-lg font-black text-[#F5F5F0]">
-                  {order.tableNumber}
+              <div className="bg-white border border-[#E6E8E1] rounded-xl p-3.5 flex flex-col gap-1 shadow-xs">
+                <div className="text-xs text-[#74796F]">Table</div>
+                <span className="text-sm font-bold text-[#20251F]">
+                  #{order.tableNumber}
                 </span>
               </div>
 
-              {/* Status */}
-              <div className="bg-[#222825] border border-[#38443C] rounded-2xl p-4 flex flex-col gap-1">
-                <div className="text-xs text-[#A8B3AA] mb-1">Status</div>
+              <div className="bg-white border border-[#E6E8E1] rounded-xl p-3.5 flex flex-col gap-1 shadow-xs">
+                <div className="text-xs text-[#74796F]">Status</div>
                 <StatusBadge status={order.status} />
               </div>
 
-              {/* Time */}
-              <div className="bg-[#222825] border border-[#38443C] rounded-2xl p-4 flex flex-col gap-1">
-                <div className="flex items-center gap-1.5 text-xs text-[#A8B3AA] mb-1">
+              <div className="bg-white border border-[#E6E8E1] rounded-xl p-3.5 flex flex-col gap-1 shadow-xs">
+                <div className="flex items-center gap-1.5 text-xs text-[#74796F]">
                   <Clock className="w-3.5 h-3.5" />
-                  Placed At
+                  Placed
                 </div>
-                <span className="text-sm font-semibold text-[#F5F5F0]">
+                <span className="text-xs font-semibold text-[#20251F]">
                   {formatTime(order.createdAt)}
                 </span>
               </div>
             </div>
 
-            {/* Ordered items */}
-            <div className="bg-[#222825] border border-[#38443C] rounded-2xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-[#38443C]">
-                <h2 className="text-sm font-bold text-[#F5F5F0]">
+            <div className="bg-white border border-[#E6E8E1] rounded-xl overflow-hidden shadow-xs">
+              <div className="px-5 py-3.5 border-b border-[#E6E8E1] bg-[#FAFBF8]">
+                <h2 className="text-sm font-bold text-[#20251F]">
                   Items Ordered
                 </h2>
               </div>
-              <ul className="divide-y divide-[#38443C]">
+              <ul className="divide-y divide-[#E6E8E1]">
                 {order.items.map((item, idx) => (
                   <li
                     key={`${item.foodId}-${idx}`}
-                    className="flex items-center gap-3 px-5 py-3.5"
+                    className="flex items-center justify-between px-5 py-3.5 text-sm"
                   >
-                    <span className="flex-1 text-sm text-[#F5F5F0] leading-snug">
-                      {item.name}
-                    </span>
-                    <span className="text-xs text-[#A8B3AA] mr-2">
-                      × {item.quantity}
-                    </span>
-                    <span className="text-sm font-semibold text-[#E5B86A] min-w-[60px] text-right">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-[#20251F]">{item.name}</span>
+                      <span className="text-xs text-[#74796F]">× {item.quantity}</span>
+                    </div>
+                    <span className="font-semibold text-[#20251F]">
                       ₹{(item.price * item.quantity).toLocaleString('en-IN')}
                     </span>
                   </li>
                 ))}
               </ul>
-              {/* Total row — server-confirmed amount */}
-              <div className="px-5 py-4 border-t border-[#326B4B] bg-[#1A1E1C] flex justify-between items-center">
+              <div className="px-5 py-4 border-t border-[#E6E8E1] bg-[#FAFBF8] flex justify-between items-center">
                 <div>
-                  <span className="font-bold text-[#F5F5F0]">Total Paid</span>
-                  <span className="ml-2 text-[10px] text-[#82B895] font-medium">
-                    (server-confirmed)
+                  <span className="text-sm font-bold text-[#20251F]">Total Amount</span>
+                  <span className="ml-2 text-[10px] text-emerald-700 font-medium">
+                    (confirmed)
                   </span>
                 </div>
-                <span className="text-xl font-black text-[#E5B86A]">
+                <span className="text-xl font-extrabold text-[#526B50]">
                   ₹{order.totalAmount.toLocaleString('en-IN')}
                 </span>
               </div>
             </div>
 
-            {/* Info note */}
-            <div className="flex items-start gap-3 p-4 bg-[#24543A]/10 border border-[#326B4B]/40 rounded-xl">
-              <UtensilsCrossed className="w-4 h-4 text-[#82B895] flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-[#A8B3AA] leading-relaxed">
-                Your food will be prepared fresh and delivered to{' '}
-                <strong className="text-[#F5F5F0]">Table {order.tableNumber}</strong>.{' '}
-                No payment required at this step — settle at your convenience with the staff.
+            <div className="flex items-start gap-3 p-4 bg-[#EFF1EA] border border-[#E6E8E1] rounded-xl">
+              <UtensilsCrossed className="w-4 h-4 text-[#526B50] flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-[#74796F] leading-relaxed">
+                Your dishes will be served fresh at <strong className="text-[#20251F]">Table #{order.tableNumber}</strong>. You can settle the payment with your host after dining.
               </p>
             </div>
 
-            {/* Navigation CTAs */}
-            <div className="pb-4 space-y-3">
+            <div className="pt-2 space-y-2.5">
               <button
-                id="view-in-kitchen-btn"
                 type="button"
                 onClick={() => navigate('/kitchen')}
                 className="
-                  w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-2xl
-                  bg-[#222825] hover:bg-[#2A332E] active:scale-[0.98]
-                  text-[#E5B86A] text-sm font-bold
-                  border border-[#38443C] hover:border-[#82B895] transition-all duration-200 cursor-pointer
-                  focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                  w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-md
+                  bg-white hover:bg-[#EFF1EA] text-[#20251F] text-xs font-semibold
+                  border border-[#E6E8E1] transition-colors cursor-pointer shadow-xs
                 "
               >
-                <ChefHat className="w-4 h-4 text-[#82B895]" />
-                Track Order in Kitchen Display (Live KDS)
+                <ChefHat className="w-4 h-4 text-[#526B50]" />
+                Track in Kitchen Display
               </button>
 
               <button
-                id="back-to-menu-btn"
                 type="button"
                 onClick={handleBackToMenu}
                 className="
-                  w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-2xl
-                  bg-[#24543A] hover:bg-[#326B4B] active:scale-[0.98]
-                  text-[#F5F0E6] text-sm font-bold
-                  border border-[#326B4B] transition-all duration-200 cursor-pointer
-                  focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                  w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-md
+                  bg-[#526B50] hover:bg-[#40563F] text-white text-xs font-semibold
+                  transition-colors cursor-pointer shadow-xs
                 "
               >
                 <ArrowLeft className="w-4 h-4" />
-                Back to Menu
+                Return to Menu
               </button>
             </div>
           </>
         )}
       </main>
 
-      {/* ── Footer ── */}
-      <footer className="border-t border-[#38443C] bg-[#222825] py-5 text-xs text-[#A8B3AA]">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>
-            <span className="font-bold text-[#F5F5F0]">ServeSync</span> •
-            Order Confirmation • Commit 6
-          </span>
-          <span>Table #{tableNumber} Active</span>
+      <footer className="border-t border-[#E6E8E1] bg-white py-4 text-xs text-[#74796F]">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 flex items-center justify-center">
+          <span>Dinning Room · Order Confirmation</span>
         </div>
       </footer>
     </div>

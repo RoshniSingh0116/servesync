@@ -1,30 +1,5 @@
 'use strict';
-/**
- * test-kitchen.js — ServeSync Member 4 — Commit 4 Kitchen API Test Suite
- *
- * Self-contained test runner (no test framework, no network, no MongoDB).
- * Stubs the repository layer so every controller code path runs in process.
- *
- * Covers all Commit 4 requirements:
- *  ✓ Valid statuses: pending | preparing | ready | completed
- *  ✓ Permitted transitions: pending→preparing, preparing→ready, ready→completed
- *  ✓ Rejected skips: pending→ready, pending→completed, preparing→completed
- *  ✓ Rejected backwards: completed→ready, ready→preparing, preparing→pending
- *  ✓ Rejected repeats (same status re-applied)
- *  ✓ Invalid ObjectId → 400
- *  ✓ Missing order → 404
- *  ✓ Missing status body → 400
- *  ✓ Invalid status string → 400 with validStatuses hint (no "served" exposed)
- *  ✓ Empty result sets handled correctly (200, count 0)
- *  ✓ DB errors handled correctly (500)
- *  ✓ updatedAt set on every update
- *  ✓ Full updated order returned in response
- *  ✓ Error messages use user-facing names (pending/preparing/ready/completed)
- *
- * Run with:  node test-kitchen.js
- */
 
-/* ─── Minimal test harness ───────────────────────────────────────────────── */
 let passed = 0;
 let failed = 0;
 const results = [];
@@ -46,7 +21,6 @@ function section(title) {
   console.log('─'.repeat(64));
 }
 
-/* ─── Mock req / res factories ───────────────────────────────────────────── */
 function mockReq({ params = {}, body = {} } = {}) {
   return { params, body };
 }
@@ -60,9 +34,6 @@ function mockRes() {
   };
 }
 
-/* ─── Re-implement pure controller logic (no DB) ─────────────────────────── */
-/* We inline the identical logic from kitchenController.js with injected stubs
-   so this file is fully self-contained and needs no network. */
 
 const { ObjectId } = require('mongodb');
 
@@ -74,7 +45,7 @@ const STATUS_MAP = {
   preparing: 'Preparing',
   ready:     'Ready',
   completed: 'Served',
-  served:    'Served',  // backward-compat, not advertised
+  served:    'Served',
 };
 
 function isValidObjectId(id) {
@@ -99,7 +70,6 @@ function toUserFacingStatus(canonical) {
   return canonical.toLowerCase();
 }
 
-/* ── getAllKitchenOrders ── */
 async function ctrl_getAllKitchenOrders(req, res, { findAllKitchenOrders }) {
   try {
     const orders = await findAllKitchenOrders();
@@ -109,7 +79,6 @@ async function ctrl_getAllKitchenOrders(req, res, { findAllKitchenOrders }) {
   }
 }
 
-/* ── getKitchenOrdersByStatus ── */
 async function ctrl_getKitchenOrdersByStatus(req, res, { findOrdersByStatus }) {
   try {
     const { status } = req.params;
@@ -127,7 +96,6 @@ async function ctrl_getKitchenOrdersByStatus(req, res, { findOrdersByStatus }) {
   }
 }
 
-/* ── updateKitchenOrderStatus ── */
 async function ctrl_updateKitchenOrderStatus(req, res, { findKitchenOrderById, updateOrderStatus }) {
   try {
     const { id } = req.params;
@@ -185,7 +153,6 @@ async function ctrl_updateKitchenOrderStatus(req, res, { findKitchenOrderById, u
   }
 }
 
-/* ─── Shared fixtures ────────────────────────────────────────────────────── */
 const VALID_ID     = '507f1f77bcf86cd799439011';
 const NONEXIST_ID  = '000000000000000000000000';
 
@@ -209,9 +176,6 @@ function stubFind(currentCanonical) {
   return async (s) => s === currentCanonical ? [makeOrder(currentCanonical)] : [];
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION A — GET /api/kitchen/orders
-   ═══════════════════════════════════════════════════════════════════════════ */
 (async () => {
 
 section('A1: GET all orders — returns all orders sorted newest-first');
@@ -245,9 +209,6 @@ section('A3: GET all orders — DB error returns 500');
   assert('safe error msg',   typeof res._body.error === 'string' && !res._body.error.includes('timeout'));
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION B — GET /api/kitchen/orders/status/:status
-   ═══════════════════════════════════════════════════════════════════════════ */
 
 section('B1: Filter by status = pending → returns Pending orders');
 {
@@ -347,9 +308,6 @@ section('B8: DB error on status filter → 500');
   assert('safe error msg', !res._body.error.includes('DB gone'));
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION C — PATCH /api/kitchen/orders/:id/status (input validation)
-   ═══════════════════════════════════════════════════════════════════════════ */
 
 section('C1: Invalid ObjectId → 400');
 {
@@ -431,9 +389,6 @@ section('C7: Order not found → 404');
   assert('Order not found msg',res._body.error === 'Order not found.');
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION D — PERMITTED status transitions
-   ═══════════════════════════════════════════════════════════════════════════ */
 
 section('D1: PERMITTED — pending → preparing');
 {
@@ -495,9 +450,6 @@ section('D4: PERMITTED — ready → completed (via "served" input, silent alias
   assert('returned order is Served', res._body.order.status === 'Served');
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION E — REJECTED transitions (skips)
-   ═══════════════════════════════════════════════════════════════════════════ */
 
 section('E1: REJECTED — pending → ready (skip)');
 {
@@ -536,9 +488,6 @@ section('E3: REJECTED — preparing → completed (skip)');
   assert('allowedNext=ready',  res._body.allowedNextStatus === 'ready');
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION F — REJECTED transitions (backwards)
-   ═══════════════════════════════════════════════════════════════════════════ */
 
 section('F1: REJECTED — completed → ready (backwards)');
 {
@@ -611,9 +560,6 @@ section('F6: REJECTED — preparing → pending (backwards)');
   assert('allowedNext=ready',  res._body.allowedNextStatus === 'ready');
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION G — REJECTED same-status repeats
-   ═══════════════════════════════════════════════════════════════════════════ */
 
 section('G1: REJECTED — pending re-applied to pending order');
 {
@@ -649,9 +595,6 @@ section('G3: REJECTED — completed re-applied to completed order');
   assert('already in completed', res._body.error.includes('completed'));
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION H — updatedAt and response shape verification
-   ═══════════════════════════════════════════════════════════════════════════ */
 
 section('H1: updatedAt is set on the returned order after update');
 {
@@ -689,9 +632,6 @@ section('H2: Full order document is returned (all fields present)');
   assert('order.updatedAt present',    o.updatedAt !== undefined);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION I — Pure helper unit tests
-   ═══════════════════════════════════════════════════════════════════════════ */
 
 section('I1: isValidObjectId');
 {
@@ -748,13 +688,12 @@ section('I6: STATUS_MAP — all four spec inputs map correctly');
   assert('preparing → Preparing', STATUS_MAP['preparing'] === 'Preparing');
   assert('ready     → Ready',     STATUS_MAP['ready']     === 'Ready');
   assert('completed → Served',    STATUS_MAP['completed'] === 'Served');
-  assert('served    → Served',    STATUS_MAP['served']    === 'Served');  // silent alias
+  assert('served    → Served',    STATUS_MAP['served']    === 'Served');
   assert('unknown   → undefined', STATUS_MAP['burnt']     === undefined);
   assert('VALID_INPUT_STATUSES correct length', VALID_INPUT_STATUSES.length === 4);
   assert('no "served" in VALID_INPUT_STATUSES', !VALID_INPUT_STATUSES.includes('served'));
 }
 
-/* ─── Final summary ──────────────────────────────────────────────────────── */
 console.log(`\n${'═'.repeat(64)}`);
 if (failed === 0) {
   console.log(`  ✅  ALL TESTS PASSED: ${passed} assertions`);

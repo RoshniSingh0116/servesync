@@ -1,29 +1,11 @@
 'use strict';
 
-/**
- * seedAdmin.js — ServeSync
- *
- * Upserts the admin account in MongoDB using credentials from environment
- * variables. Passwords are stored as bcrypt hashes — NEVER as plain text.
- *
- * Usage:
- *   1. Set ADMIN_USERNAME and ADMIN_PASSWORD in server/.env
- *   2. Run:  node src/scripts/seedAdmin.js
- *
- * This script is IDEMPOTENT and safe to re-run:
- *   - Updates the existing admin account with the new username, email,
- *     and bcrypt-hashed password.
- *   - Creates an admin document if one does not exist yet.
- *   - Ensures stale/duplicate admin documents are purged so old credentials
- *     no longer work.
- */
 
 require('dotenv').config();
 
 const bcrypt = require('bcryptjs');
 const { connectDB, closeDB, getDB } = require('../config/db');
 
-/* ── Read credentials from environment variables ── */
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const ADMIN_EMAIL    = process.env.ADMIN_EMAIL || 'admin@servesync.com';
@@ -44,10 +26,8 @@ async function seedAdmin() {
     const db     = getDB();
     const admins = db.collection('admins');
 
-    /* Hash the password from env — never store plain text */
     const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, BCRYPT_SALT_ROUNDS);
 
-    /* Look for an existing admin account to update */
     let admin = await admins.findOne({ username: ADMIN_USERNAME });
     if (!admin) {
       admin = await admins.findOne({ role: 'admin' });
@@ -55,7 +35,6 @@ async function seedAdmin() {
 
     let adminId;
     if (admin) {
-      /* Update the existing admin account */
       adminId = admin._id;
       await admins.updateOne(
         { _id: adminId },
@@ -73,7 +52,6 @@ async function seedAdmin() {
         `[seedAdmin] ✅ Existing admin account updated to username "${ADMIN_USERNAME}" with bcrypt password hash.`
       );
     } else {
-      /* Insert a fresh admin document */
       const result = await admins.insertOne({
         username:  ADMIN_USERNAME,
         password:  hashedPassword,
@@ -88,7 +66,6 @@ async function seedAdmin() {
       );
     }
 
-    /* Clean up any stale or duplicate admin records so old credentials cannot work */
     const staleResult = await admins.deleteMany({
       _id: { $ne: adminId },
     });

@@ -24,7 +24,7 @@ function VegDot({ isVeg }) {
     <span
       className={`inline-flex items-center justify-center w-4 h-4 rounded-sm border flex-shrink-0 mt-0.5 ${
         isVeg ? 'border-emerald-600' : 'border-rose-600'
-      } bg-[#1A1E1C]`}
+      } bg-white`}
     >
       <span
         className={`w-2 h-2 rounded-full ${
@@ -70,18 +70,15 @@ export default function CheckoutPage() {
       let foodsById = {};
       try {
         const { foods } = await getAllFoods();
-        // Build a map keyed by name (lowercase, trimmed) → food document
         const foodsByName = {};
         foods.forEach((f) => {
           const key = (f.name || '').toLowerCase().trim();
           foodsByName[key] = f;
         });
-        // Also key by _id string for items that already carry a MongoDB id
         foods.forEach((f) => {
           foodsById[String(f._id)] = f;
         });
 
-        // Resolve each cart item to a real foodId
         const unresolvedItems = [];
         cartItems.forEach((ci) => {
           const nameKey = (ci.name || '').toLowerCase().trim();
@@ -99,12 +96,7 @@ export default function CheckoutPage() {
           return;
         }
 
-        /* ── Step 2: Build the order payload ── */
-        // foodId: use the food's MongoDB _id resolved from the catalog.
-        // quantity: taken from the cart.
-        // No price — backend fetches prices from MongoDB.
         const resolvedItems = cartItems.map((ci) => {
-          // Prefer name-based lookup; fall back to id-based if cart already has _id
           const nameKey = (ci.name || '').toLowerCase().trim();
           const food = foodsByName[nameKey] || foodsById[ci.id];
           return {
@@ -113,18 +105,11 @@ export default function CheckoutPage() {
           };
         });
 
-        /* ── Step 3: POST to /api/orders ── */
         const result = await placeOrder({
           tableNumber: parsedTable,
           items: resolvedItems,
         });
 
-        /* ── Step 4: Mirror confirmed order into OrderContext ── */
-        // This makes the new order visible in the Kitchen Dashboard (Member 4)
-        // in the same browser session without requiring the KDS to poll the backend.
-        // addOrder() assigns an in-session integer id so KDS handleStatusChange works.
-        // The backend-confirmed data (names, prices, totalAmount) from result.order
-        // is used so the KDS card shows accurate item names and totals.
         try {
           addOrder({
             tableNumber: result.order.tableNumber,
@@ -138,23 +123,15 @@ export default function CheckoutPage() {
             specialInstructions: result.order.specialInstructions ?? null,
           });
         } catch {
-          // Mirror failure must not block the checkout success flow
         }
 
-        // Clear cart only after confirmed success
         clearCart();
 
-        // Navigate to confirmation page, passing the full order in state so
-        // the page works even if the user hard-refreshes (it also saves an
-        // extra GET /api/orders/:id round-trip on the happy path).
         navigate(`/order-confirmation/${String(result.order._id)}?table=${tableNumber}`, {
           state: { confirmedOrder: result.order },
           replace: false,
         });
       } catch (foodErr) {
-        // If the food catalog is unavailable we still try to place the order
-        // using the cart item IDs directly (they may already be ObjectIds in
-        // future iterations), but surface a warning if that also fails.
         throw foodErr;
       }
     } catch (err) {
@@ -164,28 +141,27 @@ export default function CheckoutPage() {
   }, [isPlacing, cartItems, tableNumber, clearCart, navigate, addOrder]);
 
   return (
-    <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] flex flex-col">
-      {/* ── Header ── */}
-      <header className="sticky top-0 z-40 bg-[#171A19]/95 backdrop-blur-md border-b border-[#38443C]">
+    <div className="min-h-screen bg-[#F7F7F4] flex flex-col">
+      <header className="sticky top-0 z-40 bg-white border-b border-[#E6E8E1]">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-4">
           <button
             type="button"
             onClick={() => navigate(`/cart?table=${tableNumber}`)}
             aria-label="Back to cart"
-            className="p-2 rounded-xl bg-[#222825] border border-[#38443C] hover:border-[#82B895] text-[#A8B3AA] hover:text-[#F5F5F0] transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+            className="p-2 rounded-lg border border-[#E6E8E1] hover:border-[#526B50] text-[#74796F] hover:text-[#20251F] transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#526B50]/30"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
 
           <div className="flex items-center gap-2.5 flex-1">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#24543A] to-[#171A19] border border-[#326B4B] flex items-center justify-center">
-              <ClipboardList className="w-5 h-5 text-[#E5B86A]" />
+            <div className="w-8 h-8 rounded-lg bg-[#526B50] flex items-center justify-center">
+              <ClipboardList className="w-4 h-4 text-white" />
             </div>
             <div>
-              <span className="text-base font-black text-[#F5F5F0]">
-                Serve<span className="text-[#E5B86A]">Sync</span>
+              <span className="text-base font-bold text-[#20251F]">
+                Dinning Room
               </span>
-              <span className="text-xs text-[#A8B3AA] block leading-none">
+              <span className="text-xs text-[#74796F] block leading-none">
                 Checkout
               </span>
             </div>
@@ -193,45 +169,41 @@ export default function CheckoutPage() {
         </div>
       </header>
 
-      {/* ── Body ── */}
-      <main className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8 space-y-6">
-        {/* Page title */}
+      <main className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8 space-y-5">
         <div>
-          <h1 className="text-2xl font-black text-[#F5F5F0] mb-1">
+          <h1 className="text-2xl font-bold text-[#20251F] mb-1">
             Review Your Order
           </h1>
-          <p className="text-sm text-[#A8B3AA]">
+          <p className="text-sm text-[#74796F]">
             Confirm your items and place your order for the table.
           </p>
         </div>
 
-        {/* Table info card */}
-        <div className="flex items-center gap-4 p-4 bg-[#222825] border border-[#38443C] rounded-2xl">
-          <div className="w-14 h-14 rounded-xl bg-[#24543A] border border-[#326B4B] flex flex-col items-center justify-center text-[#F5F0E6] flex-shrink-0">
-            <span className="text-[9px] uppercase font-bold leading-none text-[#A8B3AA]">
+        <div className="flex items-center gap-4 p-4 bg-white border border-[#E6E8E1] rounded-lg shadow-sm">
+          <div className="w-12 h-12 rounded-lg bg-[#EFF1EA] border border-[#E6E8E1] flex flex-col items-center justify-center flex-shrink-0">
+            <span className="text-[9px] uppercase font-semibold leading-none text-[#74796F]">
               Table
             </span>
-            <span className="text-2xl font-black leading-tight text-[#E5B86A]">
+            <span className="text-xl font-bold leading-tight text-[#526B50]">
               {tableNumber}
             </span>
           </div>
           <div>
-            <p className="text-sm font-semibold text-[#F5F5F0]">
+            <p className="text-sm font-semibold text-[#20251F]">
               QR Order — Table {tableNumber}
             </p>
-            <p className="text-xs text-[#A8B3AA] mt-0.5">
+            <p className="text-xs text-[#74796F] mt-0.5">
               Your order will be served directly at this table.
             </p>
           </div>
         </div>
 
-        {/* Order items */}
-        <div className="bg-[#222825] border border-[#38443C] rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-[#38443C] flex items-center gap-2">
-            <ShoppingBag className="w-4 h-4 text-[#E5B86A]" />
-            <h2 className="text-sm font-bold text-[#F5F5F0]">
+        <div className="bg-white border border-[#E6E8E1] rounded-lg shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-[#E6E8E1] flex items-center gap-2">
+            <ShoppingBag className="w-4 h-4 text-[#526B50]" />
+            <h2 className="text-sm font-semibold text-[#20251F]">
               Order Items
-              <span className="ml-1.5 text-[#A8B3AA] font-normal">
+              <span className="ml-1.5 text-[#74796F] font-normal">
                 ({cartCount} {cartCount === 1 ? 'item' : 'items'})
               </span>
             </h2>
@@ -239,33 +211,33 @@ export default function CheckoutPage() {
 
           {cartItems.length === 0 ? (
             <div className="flex flex-col items-center py-12 text-center px-6">
-              <Utensils className="w-10 h-10 text-[#38443C] mb-3" />
-              <p className="text-sm text-[#A8B3AA]">
+              <Utensils className="w-10 h-10 text-[#E6E8E1] mb-3" />
+              <p className="text-sm text-[#74796F]">
                 No items in cart. Go back and add items to proceed.
               </p>
               <button
                 type="button"
                 onClick={() => navigate(`/menu?table=${tableNumber}`)}
-                className="mt-4 px-5 py-2 rounded-xl bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-xs font-semibold border border-[#326B4B] transition-colors cursor-pointer"
+                className="mt-4 px-5 py-2 rounded-md bg-[#526B50] hover:bg-[#40563F] text-white text-xs font-semibold transition-colors cursor-pointer"
               >
                 Browse Menu
               </button>
             </div>
           ) : (
-            <ul className="divide-y divide-[#38443C]">
+            <ul className="divide-y divide-[#E6E8E1]">
               {cartItems.map((item) => (
                 <li
                   key={item.id}
                   className="flex items-center gap-3 px-5 py-3.5"
                 >
                   <VegDot isVeg={item.isVeg} />
-                  <span className="flex-1 text-sm text-[#F5F5F0] leading-snug">
+                  <span className="flex-1 text-sm text-[#20251F] leading-snug">
                     {item.name}
                   </span>
-                  <span className="text-xs text-[#A8B3AA] mr-2">
+                  <span className="text-xs text-[#74796F] mr-2">
                     × {item.quantity}
                   </span>
-                  <span className="text-sm font-semibold text-[#E5B86A] min-w-[60px] text-right">
+                  <span className="text-sm font-semibold text-[#526B50] min-w-[60px] text-right">
                     ₹{(item.price * item.quantity).toLocaleString('en-IN')}
                   </span>
                 </li>
@@ -274,44 +246,41 @@ export default function CheckoutPage() {
           )}
         </div>
 
-        {/* Price breakdown */}
-        <div className="bg-[#222825] border border-[#38443C] rounded-2xl p-5 space-y-3">
-          <h2 className="text-sm font-bold text-[#F5F5F0] mb-1">
+        <div className="bg-white border border-[#E6E8E1] rounded-lg shadow-sm p-5 space-y-3">
+          <h2 className="text-sm font-semibold text-[#20251F] mb-1">
             Price Breakdown
           </h2>
-          <div className="flex justify-between text-sm text-[#A8B3AA]">
-            <span>Subtotal</span>
-            <span className="text-[#F5F5F0] font-medium">
+          <div className="flex justify-between text-sm">
+            <span className="text-[#74796F]">Subtotal</span>
+            <span className="text-[#20251F] font-medium">
               ₹{subtotal.toLocaleString('en-IN')}
             </span>
           </div>
-          <div className="flex justify-between text-xs text-[#68736A]">
+          <div className="flex justify-between text-xs text-[#74796F]">
             <span>Service charges &amp; taxes</span>
             <span>Included</span>
           </div>
-          <div className="border-t border-[#38443C] pt-3 flex justify-between items-center">
-            <span className="font-bold text-[#F5F5F0]">Estimated Total</span>
-            <span className="text-2xl font-black text-[#E5B86A]">
+          <div className="border-t border-[#E6E8E1] pt-3 flex justify-between items-center">
+            <span className="font-semibold text-[#20251F]">Estimated Total</span>
+            <span className="text-2xl font-bold text-[#526B50]">
               ₹{total.toLocaleString('en-IN')}
             </span>
           </div>
-          <p className="text-[10px] text-[#68736A] leading-relaxed">
+          <p className="text-[10px] text-[#74796F] leading-relaxed">
             Final total is confirmed by the server after order placement.
           </p>
         </div>
 
-        {/* Error message */}
         {error && (
           <div
             role="alert"
-            className="flex items-start gap-3 p-4 bg-rose-950/40 border border-rose-800/60 rounded-xl text-sm text-rose-300"
+            className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"
           >
-            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-500" />
             <p>{error}</p>
           </div>
         )}
 
-        {/* Place Order CTA */}
         <div className="pb-6">
           <button
             id="place-order-btn"
@@ -319,13 +288,12 @@ export default function CheckoutPage() {
             onClick={handlePlaceOrder}
             disabled={isPlacing || cartItems.length === 0}
             className="
-              w-full flex items-center justify-center gap-3 py-4 px-6 rounded-2xl
-              bg-[#24543A] hover:bg-[#326B4B] active:scale-[0.98]
-              text-[#F5F0E6] text-base font-bold
-              border border-[#326B4B] transition-all duration-200 cursor-pointer
+              w-full flex items-center justify-center gap-3 py-4 px-6 rounded-lg
+              bg-[#526B50] hover:bg-[#40563F] active:scale-[0.98]
+              text-white text-base font-semibold
+              transition-all duration-200 cursor-pointer
               disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100
-              focus:outline-none focus:ring-2 focus:ring-[#82B895]
-              shadow-lg shadow-[#24543A]/20
+              focus:outline-none focus:ring-2 focus:ring-[#526B50]/40
             "
           >
             {isPlacing ? (
@@ -341,20 +309,15 @@ export default function CheckoutPage() {
             )}
           </button>
 
-          <p className="text-center text-xs text-[#68736A] mt-3">
+          <p className="text-center text-xs text-[#74796F] mt-3">
             Your order will be prepared fresh and served at Table {tableNumber}.
           </p>
         </div>
       </main>
 
-      {/* ── Footer ── */}
-      <footer className="border-t border-[#38443C] bg-[#222825] py-5 text-xs text-[#A8B3AA]">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>
-            <span className="font-bold text-[#F5F5F0]">ServeSync</span> •
-            Checkout Module • Commit 6
-          </span>
-          <span>Table #{tableNumber} Active</span>
+      <footer className="border-t border-[#E6E8E1] bg-white py-4 text-xs text-[#74796F]">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 flex items-center justify-center">
+          <span>Dinning Room · Table #{tableNumber}</span>
         </div>
       </footer>
     </div>

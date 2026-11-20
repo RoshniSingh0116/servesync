@@ -16,13 +16,6 @@ if (!URI) {
 let client = null;
 let db = null;
 
-/**
- * Connects to MongoDB once and returns the shared db instance.
- * Subsequent calls return the already-connected instance without
- * opening a new connection.
- *
- * @returns {Promise<import('mongodb').Db>}
- */
 async function connectDB() {
   if (db) {
     return db;
@@ -37,12 +30,6 @@ async function connectDB() {
   return db;
 }
 
-/**
- * Returns the active db instance.
- * Throws if connectDB() has not been called yet.
- *
- * @returns {import('mongodb').Db}
- */
 function getDB() {
   if (!db) {
     throw new Error(
@@ -52,10 +39,6 @@ function getDB() {
   return db;
 }
 
-/**
- * Closes the MongoDB client connection.
- * Intended for graceful shutdown only.
- */
 async function closeDB() {
   if (client) {
     await client.close();

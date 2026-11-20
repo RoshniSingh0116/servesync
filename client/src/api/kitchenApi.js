@@ -69,7 +69,6 @@ export async function patchKitchenOrderStatus(orderId, nextTitleCase) {
   }
 }
 
-/* ─── Error normalisation ────────────────────────────────────────────────── */
 
 function normaliseError(err) {
   if (err.response?.data) {

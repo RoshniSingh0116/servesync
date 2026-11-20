@@ -1,30 +1,4 @@
-/**
- * TableQRSection.jsx — ServeSync Admin Table QR Code Management
- *
- * Renders inside the existing Admin Dashboard as the "Table QR Codes" section.
- *
- * Features:
- *  - Generate a unique QR code for any table number
- *  - Duplicate table prevention (persisted in localStorage)
- *  - Dynamically builds the menu URL using the current browser origin
- *    so it works in both development and production without any hardcoding
- *  - Download individual QR codes as PNG images (via canvas.toDataURL)
- *  - Print individual QR codes with their table number label
- *  - Regenerate a QR code (deletes old, re-creates same table number)
- *  - Delete a table's QR code
- *
- * Persistence: localStorage key `servesync_qr_tables`
- *   Stores an array of { tableNumber: number, createdAt: string }
- *   This avoids adding an unnecessary new MongoDB collection while still
- *   surviving page refreshes and browser sessions on the same machine.
- *
- * QR URL format: <window.location.origin>/menu?table=<tableNumber>
- *   Example: http://localhost:5173/menu?table=3
- *            https://servesync.vercel.app/menu?table=3
- */
-
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { QRCodeCanvas } from 'qrcode.react';
 import {
   QrCode,
   Plus,
@@ -37,158 +11,160 @@ import {
   Table as TableIcon,
   Info,
   Link,
+  ExternalLink,
 } from 'lucide-react';
 
-/* ─── Storage helpers ────────────────────────────────────────────────── */
+const STORAGE_KEY = 'dinning_room_qr_tables';
 
-const STORAGE_KEY = 'servesync_qr_tables';
-
-/** Load table list from localStorage. Returns sorted array by tableNumber. */
 function loadTables() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('servesync_qr_tables');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // Sort ascending by table number
     return parsed.sort((a, b) => a.tableNumber - b.tableNumber);
   } catch {
     return [];
   }
 }
 
-/** Persist table list to localStorage. */
 function saveTables(tables) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tables));
   } catch {
-    // Handle private browsing or storage quota gracefully
   }
 }
 
-/* ─── URL builder ────────────────────────────────────────────────────── */
-
-/**
- * Builds the customer menu URL for a given table number.
- * Uses window.location.origin so it works in both dev and production
- * without hardcoding any domain.
- */
 function buildMenuUrl(tableNumber) {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return `${origin}/menu?table=${tableNumber}`;
 }
 
-/* ─── Single QR Card ────────────────────────────────────────────────── */
-
 function QRCard({ entry, onDelete, onRegenerate }) {
   const { tableNumber, createdAt } = entry;
   const menuUrl = buildMenuUrl(tableNumber);
-  const canvasId = `qr-canvas-table-${tableNumber}`;
+  const canvasRef = useRef(null);
+  const [copied, setCopied] = useState(false);
+  const [qrLoaded, setQrLoaded] = useState(false);
 
-  /** Download the QR code canvas as a PNG file */
-  const handleDownload = useCallback(() => {
-    const canvas = document.getElementById(canvasId);
+  useEffect(() => {
+    const canvas = canvasRef.current;
     if (!canvas) return;
-    // Briefly upsample to 4× for a sharp, print-quality PNG
-    const size = 512;
+    const ctx = canvas.getContext('2d');
+    canvas.width = 200;
+    canvas.height = 200;
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, 200, 200);
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=8&data=${encodeURIComponent(menuUrl)}`;
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, 200, 200);
+      setQrLoaded(true);
+    };
+    img.onerror = () => {
+      ctx.fillStyle = '#EFF1EA';
+      ctx.fillRect(10, 10, 180, 180);
+      ctx.fillStyle = '#526B50';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Table #${tableNumber}`, 100, 95);
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = '#74796F';
+      ctx.fillText('QR Code', 100, 115);
+      setQrLoaded(true);
+    };
+  }, [menuUrl, tableNumber]);
+
+  const handleDownload = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const size = 480;
     const offscreen = document.createElement('canvas');
     offscreen.width = size;
-    offscreen.height = size + 60; // extra height for the label
+    offscreen.height = size + 80;
     const ctx = offscreen.getContext('2d');
 
-    // White background
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, offscreen.width, offscreen.height);
+    ctx.drawImage(canvas, 20, 20, size - 40, size - 40);
 
-    // Draw the QR canvas (upscaled)
-    ctx.drawImage(canvas, 0, 0, size, size);
-
-    // Draw "Table X" label below QR
-    ctx.fillStyle = '#1a1a1a';
-    ctx.font = `bold 28px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+    ctx.fillStyle = '#20251F';
+    ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`Table ${tableNumber}`, size / 2, size + 42);
+    ctx.fillText(`Dinning Room · Table #${tableNumber}`, size / 2, size + 40);
 
-    const dataUrl = offscreen.toDataURL('image/png');
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#74796F';
+    ctx.fillText('Scan to order from table', size / 2, size + 62);
+
     const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = `ServeSync-Table-${tableNumber}-QR.png`;
+    a.href = offscreen.toDataURL('image/png');
+    a.download = `Dinning-Room-Table-${tableNumber}-QR.png`;
     a.click();
-  }, [canvasId, tableNumber]);
+  }, [tableNumber]);
 
-  /** Open a minimal print window with just this QR code and table label */
   const handlePrint = useCallback(() => {
-    const canvas = document.getElementById(canvasId);
+    const canvas = canvasRef.current;
     if (!canvas) return;
     const dataUrl = canvas.toDataURL('image/png');
 
-    const printWindow = window.open('', '_blank', 'width=400,height=500');
+    const printWindow = window.open('', '_blank', 'width=420,height=520');
     if (!printWindow) return;
 
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>ServeSync — Table ${tableNumber} QR Code</title>
+          <title>Dinning Room — Table ${tableNumber} QR</title>
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
               display: flex;
               flex-direction: column;
               align-items: center;
               justify-content: center;
               min-height: 100vh;
               background: #fff;
-              padding: 32px;
+              padding: 24px;
             }
             .brand {
-              font-size: 13px;
-              color: #666;
-              letter-spacing: 0.08em;
+              font-size: 16px;
+              color: #20251F;
+              letter-spacing: 0.05em;
               text-transform: uppercase;
-              margin-bottom: 20px;
-              font-weight: 600;
+              margin-bottom: 16px;
+              font-weight: 800;
             }
             .qr-img {
-              width: 240px;
-              height: 240px;
-              border: 1px solid #eee;
-              border-radius: 12px;
-              padding: 12px;
+              width: 220px;
+              height: 220px;
+              border: 1px solid #E6E8E1;
+              border-radius: 8px;
+              padding: 8px;
             }
             .table-label {
-              margin-top: 18px;
-              font-size: 28px;
-              font-weight: 900;
-              color: #111;
-              letter-spacing: -0.5px;
-            }
-            .url-label {
-              margin-top: 10px;
-              font-size: 10px;
-              color: #999;
-              word-break: break-all;
-              text-align: center;
-              max-width: 260px;
+              margin-top: 14px;
+              font-size: 24px;
+              font-weight: 800;
+              color: #20251F;
             }
             .instructions {
-              margin-top: 14px;
-              font-size: 11px;
-              color: #555;
-              text-align: center;
-            }
-            @media print {
-              body { padding: 20px; }
+              margin-top: 6px;
+              font-size: 12px;
+              color: #74796F;
             }
           </style>
         </head>
         <body>
-          <p class="brand">ServeSync</p>
+          <p class="brand">Dinning Room</p>
           <img class="qr-img" src="${dataUrl}" alt="Table ${tableNumber} QR Code" />
-          <p class="table-label">Table ${tableNumber}</p>
-          <p class="url-label">${menuUrl}</p>
-          <p class="instructions">Scan to order from your table</p>
+          <p class="table-label">Table #${tableNumber}</p>
+          <p class="instructions">Scan to view menu &amp; order</p>
           <script>
             window.onload = function() {
               window.print();
@@ -199,7 +175,14 @@ function QRCard({ entry, onDelete, onRegenerate }) {
       </html>
     `);
     printWindow.document.close();
-  }, [canvasId, tableNumber, menuUrl]);
+  }, [tableNumber]);
+
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(menuUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   const dateLabel = createdAt
     ? new Date(createdAt).toLocaleDateString('en-IN', {
@@ -210,120 +193,82 @@ function QRCard({ entry, onDelete, onRegenerate }) {
     : null;
 
   return (
-    <article
-      data-testid={`qr-card-table-${tableNumber}`}
-      className="
-        flex flex-col bg-[#1C211F] border border-[#38443C] rounded-2xl overflow-hidden
-        hover:border-[#82B895]/50 transition-all duration-200 shadow-md
-      "
-    >
-      {/* Card Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#38443C] bg-[#171A19]">
+    <article className="flex flex-col bg-white border border-[#E6E8E1] rounded-xl overflow-hidden shadow-xs hover:border-[#CBD0C5] transition-all">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#E6E8E1] bg-[#FAFBF8]">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-[#24543A] flex items-center justify-center">
-            <TableIcon className="w-3.5 h-3.5 text-[#82B895]" />
+          <div className="w-7 h-7 rounded-md bg-[#EFF1EA] text-[#526B50] flex items-center justify-center">
+            <TableIcon className="w-3.5 h-3.5" />
           </div>
           <div>
-            <p className="text-sm font-black text-[#F5F5F0] leading-tight">
-              Table {tableNumber}
+            <p className="text-sm font-bold text-[#20251F] leading-tight">
+              Table #{tableNumber}
             </p>
             {dateLabel && (
-              <p className="text-[10px] text-[#68736A] leading-tight">
-                Generated {dateLabel}
+              <p className="text-[10px] text-[#74796F] leading-tight mt-0.5">
+                {dateLabel}
               </p>
             )}
           </div>
         </div>
-        {/* Delete button */}
         <button
           type="button"
           onClick={() => onDelete(tableNumber)}
           aria-label={`Delete Table ${tableNumber} QR code`}
-          title="Delete this QR code"
-          className="p-1.5 rounded-lg text-[#68736A] hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition-all cursor-pointer"
+          className="p-1.5 rounded-md text-[#74796F] hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {/* QR Code */}
-      <div className="flex flex-col items-center px-5 py-6 bg-[#F5F0E6] relative">
-        <QRCodeCanvas
-          id={canvasId}
-          value={menuUrl}
-          size={180}
-          level="H"
-          includeMargin={true}
-          bgColor="#F5F0E6"
-          fgColor="#171A19"
+      <div className="flex flex-col items-center justify-center p-5 bg-white">
+        <canvas
+          ref={canvasRef}
+          className="w-44 h-44 rounded-md border border-[#E6E8E1]"
         />
       </div>
 
-      {/* URL label */}
-      <div className="px-4 py-2.5 border-t border-[#38443C] bg-[#171A19]">
-        <div className="flex items-start gap-1.5">
-          <Link className="w-3 h-3 text-[#68736A] mt-0.5 shrink-0" />
-          <p
-            className="text-[10px] text-[#68736A] break-all leading-relaxed font-mono"
-            title={menuUrl}
-          >
-            {menuUrl}
-          </p>
-        </div>
+      <div className="px-4 py-2 border-t border-[#E6E8E1] bg-[#FAFBF8] flex items-center justify-between gap-2">
+        <span className="text-[11px] text-[#74796F] truncate font-mono">
+          {menuUrl}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="text-xs font-semibold text-[#526B50] hover:underline cursor-pointer shrink-0"
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
       </div>
 
-      {/* Action Buttons */}
-      <div className="grid grid-cols-3 divide-x divide-[#38443C] border-t border-[#38443C]">
+      <div className="p-3 border-t border-[#E6E8E1] flex items-center gap-2">
         <button
           type="button"
           onClick={handleDownload}
-          aria-label={`Download Table ${tableNumber} QR code as PNG`}
-          title="Download PNG"
-          className="
-            flex flex-col items-center gap-1 py-3 text-[#A8B3AA]
-            hover:text-[#F5F5F0] hover:bg-[#222825] transition-colors cursor-pointer
-            focus:outline-none focus:ring-1 focus:ring-[#82B895] focus:ring-inset
-          "
+          className="flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md bg-white border border-[#E6E8E1] hover:bg-[#EFF1EA] text-xs font-semibold text-[#20251F] transition-colors cursor-pointer"
         >
-          <Download className="w-4 h-4" />
-          <span className="text-[10px] font-semibold">Download</span>
+          <Download className="w-3.5 h-3.5 text-[#526B50]" />
+          <span>Save</span>
         </button>
-
         <button
           type="button"
           onClick={handlePrint}
-          aria-label={`Print Table ${tableNumber} QR code`}
-          title="Print QR code"
-          className="
-            flex flex-col items-center gap-1 py-3 text-[#A8B3AA]
-            hover:text-[#F5F5F0] hover:bg-[#222825] transition-colors cursor-pointer
-            focus:outline-none focus:ring-1 focus:ring-[#82B895] focus:ring-inset
-          "
+          className="flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md bg-[#526B50] hover:bg-[#40563F] text-xs font-semibold text-white transition-colors cursor-pointer"
         >
-          <Printer className="w-4 h-4" />
-          <span className="text-[10px] font-semibold">Print</span>
+          <Printer className="w-3.5 h-3.5" />
+          <span>Print</span>
         </button>
-
         <button
           type="button"
           onClick={() => onRegenerate(tableNumber)}
-          aria-label={`Regenerate Table ${tableNumber} QR code`}
-          title="Regenerate (same table number, new timestamp)"
-          className="
-            flex flex-col items-center gap-1 py-3 text-[#A8B3AA]
-            hover:text-[#F5F5F0] hover:bg-[#222825] transition-colors cursor-pointer
-            focus:outline-none focus:ring-1 focus:ring-[#82B895] focus:ring-inset
-          "
+          title="Regenerate QR"
+          className="p-2 rounded-md border border-[#E6E8E1] hover:bg-[#EFF1EA] text-[#74796F] hover:text-[#20251F] cursor-pointer"
         >
-          <RefreshCw className="w-4 h-4" />
-          <span className="text-[10px] font-semibold">Regenerate</span>
+          <RefreshCw className="w-3.5 h-3.5" />
         </button>
       </div>
     </article>
   );
 }
-
-/* ─── Main TableQRSection ────────────────────────────────────────────── */
 
 export default function TableQRSection() {
   const [tables, setTables] = useState(() => loadTables());
@@ -332,140 +277,78 @@ export default function TableQRSection() {
   const [successMsg, setSuccessMsg] = useState('');
   const inputRef = useRef(null);
 
-  // Persist to localStorage whenever tables change
   useEffect(() => {
     saveTables(tables);
   }, [tables]);
 
-  // Clear success message after 3 seconds
-  useEffect(() => {
-    if (!successMsg) return;
-    const t = setTimeout(() => setSuccessMsg(''), 3000);
-    return () => clearTimeout(t);
-  }, [successMsg]);
-
-  /** Validate and generate a new table QR code */
-  const handleGenerate = useCallback(() => {
+  const handleGenerate = () => {
     setInputError('');
     setSuccessMsg('');
 
-    const raw = inputValue.trim();
-    if (raw === '') {
+    const trimmed = inputValue.trim();
+    if (!trimmed) {
       setInputError('Please enter a table number.');
-      inputRef.current?.focus();
       return;
     }
 
-    const parsed = Number(raw);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 999) {
-      setInputError('Table number must be a whole number between 1 and 999.');
-      inputRef.current?.focus();
+    const num = Number(trimmed);
+    if (!Number.isInteger(num) || num < 1 || num > 999) {
+      setInputError('Table number must be an integer between 1 and 999.');
       return;
     }
 
-    // Duplicate check
-    const alreadyExists = tables.some((t) => t.tableNumber === parsed);
-    if (alreadyExists) {
-      setInputError(
-        `Table ${parsed} already has a QR code. Use Regenerate on that card to refresh it.`
-      );
+    if (tables.some((t) => t.tableNumber === num)) {
+      setInputError(`Table ${num} already has a generated QR code.`);
       return;
     }
 
-    const newEntry = { tableNumber: parsed, createdAt: new Date().toISOString() };
-    setTables((prev) =>
-      [...prev, newEntry].sort((a, b) => a.tableNumber - b.tableNumber)
-    );
+    const newEntry = {
+      tableNumber: num,
+      createdAt: new Date().toISOString(),
+    };
+
+    setTables((prev) => [...prev, newEntry].sort((a, b) => a.tableNumber - b.tableNumber));
     setInputValue('');
-    setSuccessMsg(`QR code for Table ${parsed} generated successfully!`);
-    inputRef.current?.focus();
-  }, [inputValue, tables]);
+    setSuccessMsg(`QR code generated for Table #${num}.`);
+    setTimeout(() => setSuccessMsg(''), 3000);
+  };
 
-  /** Handle Enter key in the input */
-  const handleKeyDown = useCallback(
-    (e) => {
-      if (e.key === 'Enter') handleGenerate();
-    },
-    [handleGenerate]
-  );
+  const handleDelete = (num) => {
+    setTables((prev) => prev.filter((t) => t.tableNumber !== num));
+  };
 
-  /** Delete a table's QR entry */
-  const handleDelete = useCallback((tableNumber) => {
-    setTables((prev) => prev.filter((t) => t.tableNumber !== tableNumber));
-  }, []);
-
-  /**
-   * Regenerate — removes the old entry and re-creates it with the same
-   * table number but a fresh timestamp. The QR URL itself does not change
-   * (it's deterministic: /menu?table=N), so the existing printed/saved QR
-   * codes remain valid — regenerate is just for refreshing the admin record.
-   */
-  const handleRegenerate = useCallback((tableNumber) => {
-    setTables((prev) => {
-      const without = prev.filter((t) => t.tableNumber !== tableNumber);
-      const refreshed = {
-        tableNumber,
-        createdAt: new Date().toISOString(),
-      };
-      return [...without, refreshed].sort((a, b) => a.tableNumber - b.tableNumber);
-    });
-    setSuccessMsg(`QR code for Table ${tableNumber} regenerated.`);
-  }, []);
-
-  const exampleUrl = buildMenuUrl('N');
+  const handleRegenerate = (num) => {
+    setTables((prev) =>
+      prev.map((t) =>
+        t.tableNumber === num ? { ...t, createdAt: new Date().toISOString() } : t
+      )
+    );
+  };
 
   return (
-    <div className="p-6 lg:p-8 max-w-6xl">
-      {/* ── Section Header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
+    <div>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3 mb-1.5">
-            <div className="w-9 h-9 rounded-xl bg-[#24543A] border border-[#326B4B] flex items-center justify-center">
-              <QrCode className="w-5 h-5 text-[#82B895]" />
-            </div>
-            <h1 className="text-2xl font-black text-[#F5F5F0] tracking-tight">
-              Table QR Codes
-            </h1>
-          </div>
-          <p className="text-sm text-[#A8B3AA] leading-relaxed max-w-xl">
-            Generate scannable QR codes for each restaurant table. Customers scan
-            the code to open the menu with their table automatically selected.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs text-[#68736A] bg-[#1C211F] border border-[#38443C] rounded-xl px-3 py-2">
-          <Info className="w-3.5 h-3.5 shrink-0 text-[#82B895]" />
-          <span>
-            {tables.length} table{tables.length !== 1 ? 's' : ''} configured
-          </span>
-        </div>
-      </div>
-
-      {/* ── URL Info Banner ── */}
-      <div className="mb-6 flex items-start gap-3 p-4 bg-[#1C211F] border border-[#38443C] rounded-xl text-sm">
-        <Link className="w-4 h-4 text-[#82B895] shrink-0 mt-0.5" />
-        <div>
-          <p className="text-[#F5F5F0] font-semibold mb-0.5">QR Code URL Format</p>
-          <p className="text-[#A8B3AA] text-xs font-mono break-all">{exampleUrl}</p>
-          <p className="text-[#68736A] text-xs mt-1">
-            URLs are built from your current browser origin — they work in
-            development and production automatically.
+          <h2 className="text-xl font-bold text-[#20251F] mb-1">
+            Table QR Codes
+          </h2>
+          <p className="text-sm text-[#74796F]">
+            Generate and manage tabletop QR ordering codes for tables.
           </p>
         </div>
       </div>
 
-      {/* ── Generate Form ── */}
-      <div className="mb-8 p-5 bg-[#1C211F] border border-[#38443C] rounded-2xl">
-        <h2 className="text-sm font-bold text-[#F5F5F0] mb-4 flex items-center gap-2">
-          <Plus className="w-4 h-4 text-[#82B895]" />
-          Generate New Table QR Code
-        </h2>
+      <div className="mb-8 p-5 bg-white border border-[#E6E8E1] rounded-xl shadow-xs">
+        <h3 className="text-sm font-bold text-[#20251F] mb-3 flex items-center gap-2">
+          <Plus className="w-4 h-4 text-[#526B50]" />
+          Create New Table Code
+        </h3>
 
         <div className="flex flex-wrap gap-3 items-start">
-          <div className="flex-1 min-w-[180px] max-w-xs">
+          <div className="w-full sm:w-64">
             <label
               htmlFor="table-number-input"
-              className="block text-xs text-[#A8B3AA] font-semibold mb-1.5 uppercase tracking-wider"
+              className="block text-xs font-semibold text-[#74796F] mb-1"
             >
               Table Number
             </label>
@@ -475,49 +358,29 @@ export default function TableQRSection() {
               type="number"
               min="1"
               max="999"
-              step="1"
               value={inputValue}
               onChange={(e) => {
                 setInputValue(e.target.value);
                 setInputError('');
               }}
-              onKeyDown={handleKeyDown}
+              onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
               placeholder="e.g. 5"
-              aria-label="Table number to generate QR code for"
-              aria-describedby={inputError ? 'table-input-error' : undefined}
-              className="
-                w-full px-4 py-2.5 rounded-xl bg-[#171A19] border
-                text-[#F5F5F0] text-sm placeholder:text-[#38443C]
-                focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                transition-colors
-                [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none
-                ${inputError ? 'border-rose-700/70' : 'border-[#38443C] hover:border-[#82B895]/50'}
-              "
+              className="w-full px-3 py-2 rounded-md bg-white border border-[#E6E8E1] text-sm text-[#20251F] focus:outline-none focus:ring-2 focus:ring-[#526B50]/30 focus:border-[#526B50]"
             />
             {inputError && (
-              <p
-                id="table-input-error"
-                role="alert"
-                className="mt-1.5 flex items-start gap-1.5 text-xs text-rose-400"
-              >
-                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <p className="mt-1 text-xs text-rose-600 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5" />
                 {inputError}
               </p>
             )}
           </div>
 
           <div className="flex flex-col justify-end">
-            <div className="mb-[22px]" aria-hidden="true" />
+            <div className="hidden sm:block mb-[22px]" />
             <button
               type="button"
               onClick={handleGenerate}
-              className="
-                inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
-                bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-sm font-semibold
-                border border-[#326B4B] transition-colors cursor-pointer
-                focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                shadow-sm shadow-[#24543A]/30
-              "
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#526B50] hover:bg-[#40563F] text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs"
             >
               <QrCode className="w-4 h-4" />
               Generate QR Code
@@ -525,39 +388,27 @@ export default function TableQRSection() {
           </div>
         </div>
 
-        {/* Success message */}
         {successMsg && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="mt-3 flex items-center gap-2 text-sm text-emerald-300"
-          >
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <div className="mt-3 flex items-center gap-2 text-xs text-emerald-700 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             {successMsg}
           </div>
         )}
       </div>
 
-      {/* ── QR Cards Grid ── */}
       {tables.length === 0 ? (
-        /* Empty state */
-        <div className="flex flex-col items-center justify-center py-20 text-center bg-[#1C211F] border border-[#38443C] rounded-2xl border-dashed">
-          <div className="w-16 h-16 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center mb-4">
-            <QrCode className="w-7 h-7 text-[#38443C]" />
-          </div>
-          <h3 className="text-base font-bold text-[#F5F5F0] mb-1.5">
-            No QR codes yet
-          </h3>
-          <p className="text-sm text-[#68736A] max-w-sm">
-            Enter a table number above and click &ldquo;Generate QR Code&rdquo; to
-            create the first table QR code.
+        <div className="flex flex-col items-center justify-center py-16 text-center bg-white border border-[#E6E8E1] rounded-xl border-dashed">
+          <QrCode className="w-8 h-8 text-[#74796F] opacity-40 mb-3" />
+          <h3 className="text-sm font-bold text-[#20251F] mb-1">No QR Codes Generated</h3>
+          <p className="text-xs text-[#74796F] max-w-xs">
+            Enter a table number above to generate your first tabletop QR code.
           </p>
         </div>
       ) : (
         <div>
-          <h2 className="text-xs font-bold uppercase tracking-widest text-[#68736A] mb-4">
-            {tables.length} Generated QR Code{tables.length !== 1 ? 's' : ''}
-          </h2>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-[#74796F] mb-3">
+            {tables.length} Active Table{tables.length !== 1 ? 's' : ''}
+          </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {tables.map((entry) => (
               <QRCard
