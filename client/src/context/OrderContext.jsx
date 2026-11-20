@@ -1,24 +1,24 @@
 /* eslint-disable react-refresh/only-export-components */
 /**
  * OrderContext — ServeSync (Member 2 & Member 4 integration)
- * Stores placed orders in React session state.
+ * In-session cache for orders placed in the current browser session.
+ * Used by CheckoutPage → OrderConfirmationPage for same-session display
+ * without requiring an extra API round-trip.
  *
- * Pre-seeded with INITIAL_MOCK_ORDERS so the Kitchen Display System (KDS)
- * has realistic active tickets out of the box, and new customer orders
- * dynamically appear in the kitchen queue.
+ * The Kitchen Dashboard (KitchenDashboardPage) fetches directly from
+ * GET /api/kitchen/orders and does NOT use this context.
  */
 
 import { createContext, useContext, useState, useCallback, useRef } from 'react';
-import { INITIAL_MOCK_ORDERS } from '../mocks/mockOrders';
 
 export const OrderContext = createContext(null);
 
 export function OrderProvider({ children }) {
-  // Initialize with initial mock orders so Kitchen has live data
-  const [orders, setOrders] = useState(() => [...INITIAL_MOCK_ORDERS]);
+  // Starts empty — no mock data. Orders are added when real orders are placed.
+  const [orders, setOrders] = useState([]);
 
-  // Auto-incrementing order ID starting above the initial mock orders
-  const nextId = useRef(201);
+  // Auto-incrementing session id for in-session order lookup
+  const nextId = useRef(1);
 
   /**
    * addOrder — creates a new order record from checkout.
@@ -74,10 +74,10 @@ export function OrderProvider({ children }) {
   );
 
   /**
-   * resetOrders — restores orders to initial mock orders.
+   * resetOrders — clears all in-session orders (e.g. for testing or cleanup).
    */
   const resetOrders = useCallback(() => {
-    setOrders([...INITIAL_MOCK_ORDERS]);
+    setOrders([]);
   }, []);
 
   const value = { orders, addOrder, getOrderById, updateOrderStatus, resetOrders };
