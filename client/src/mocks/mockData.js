@@ -1,10 +1,6 @@
-/**
- * ServeSync Mock Data — Customer Menu (Phase 1)
- * Single source of truth for restaurant information and food items.
- */
 
 export const RESTAURANT_INFO = {
-  name: 'The Forest Table',
+  name: 'Dinning Room',
   tagline: 'Artisanal Dining & Modern Gastronomy',
   description:
     'Savor curated culinary creations crafted with organic seasonal produce, heritage spices, and modern presentation.',

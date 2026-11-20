@@ -24,10 +24,6 @@ import { useCart } from '../../context/CartContext';
 import { RESTAURANT_INFO } from '../../mocks/mockData';
 import { useFoods } from '../../hooks/useFoods';
 
-/**
- * Helper to safely extract table number from URL query parameter (?table=X)
- * Works reliably both inside and outside a React Router context.
- */
 function getTableNumberFromUrl() {
   if (typeof window !== 'undefined' && window.location?.search) {
     const params = new URLSearchParams(window.location.search);
@@ -36,36 +32,23 @@ function getTableNumberFromUrl() {
       return table.trim();
     }
   }
-  return '1'; // Sensible demo default
+  return '1';
 }
 
-/**
- * MenuPage Component
- * Primary customer menu view for table ordering (Member 1).
- * Fetches food items from GET /api/foods via the useFoods hook.
- *
- * @param {Object} props
- * @param {Function} [props.onAddToCart] - Optional external callback from shared CartContext (for Member 2)
- */
 export default function MenuPage({ onAddToCart: externalAddToCart }) {
   const navigate = useNavigate();
   const { addToCart, cartCount } = useCart();
 
-  // 1. Fetch food items from the backend API
   const { foods, loading, error, refetch } = useFoods();
 
-  // 2. Table Number State (from URL ?table=X or default)
   const [tableNumber, setTableNumber] = useState(getTableNumberFromUrl);
 
-  // 3. Search & Category Filter State
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [vegOnly, setVegOnly] = useState(false);
 
-  // 4. Local Feedback State
   const [toastMessage, setToastMessage] = useState(null);
 
-  // Listen for query changes if URL changes dynamically
   useEffect(() => {
     const handleLocationChange = () => {
       setTableNumber(getTableNumberFromUrl());
@@ -74,22 +57,18 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
     return () => window.removeEventListener('popstate', handleLocationChange);
   }, []);
 
-  // Reset category to 'All' when foods reload (e.g. after refetch) so the
-  // user never lands on a category tab that has 0 items due to stale state.
   useEffect(() => {
     setSelectedCategory('All');
   }, [foods]);
 
   const totalCartCount = cartCount;
 
-  // Derive the unique category list from actual API data, always starting with 'All'
   const categories = useMemo(() => {
     if (foods.length === 0) return ['All'];
     const unique = [...new Set(foods.map((item) => item.category))].sort();
     return ['All', ...unique];
   }, [foods]);
 
-  // Compute dynamic category counts from the fetched foods (never hardcoded)
   const categoryCounts = useMemo(() => {
     const counts = { All: foods.length };
     categories.forEach((cat) => {
@@ -100,54 +79,44 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
     return counts;
   }, [foods, categories]);
 
-  // Filtered menu items based on Search, Category, and Veg-only toggle
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
     return foods.filter((item) => {
-      // Category match
       const matchesCategory =
         selectedCategory === 'All' || item.category === selectedCategory;
 
-      // Search match (name or description)
       const matchesSearch =
         query === '' ||
         item.name.toLowerCase().includes(query) ||
         item.description.toLowerCase().includes(query);
 
-      // Vegetarian filter
       const matchesVeg = !vegOnly || item.isVeg === true;
 
       return matchesCategory && matchesSearch && matchesVeg;
     });
   }, [foods, searchQuery, selectedCategory, vegOnly]);
 
-  // Handle Add to Cart action
   const handleAddToCart = (item) => {
-    // Guard: do not add unavailable items
     if (item.isAvailable === false) return;
 
-    // 1. Add to shared CartContext
     if (typeof addToCart === 'function') {
       addToCart(item);
     }
 
-    // 2. Show brief toast notification
     setToastMessage({
-      title: 'Added to Cart',
-      message: `${item.name} (₹${item.price})`,
+      title: 'Added to Order',
+      message: `${item.name} · ₹${item.price}`,
     });
     setTimeout(() => {
       setToastMessage(null);
     }, 2500);
 
-    // 3. Forward to external callback if supplied
     if (typeof externalAddToCart === 'function') {
       externalAddToCart(item);
     }
   };
 
-  // Reset all filters
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedCategory('All');
@@ -155,111 +124,92 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] selection:bg-[#24543A] selection:text-[#F5F0E6] flex flex-col font-sans">
-      {/* ─────────────────────────────────────────────────────────────
-          A. NAVIGATION / HEADER
-          Sticky navbar with brand logo, table status, and cart button
-      ───────────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 bg-[#171A19]/95 backdrop-blur-md border-b border-[#38443C] transition-colors">
+    <div className="min-h-screen bg-[#F7F7F4] text-[#20251F] flex flex-col font-sans">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-[#E6E8E1] transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 md:h-20">
-            {/* Brand Logo & Name */}
+          <div className="flex items-center justify-between h-16 md:h-18">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-[#24543A] to-[#171A19] border border-[#326B4B] flex items-center justify-center shadow-md">
-                <Utensils className="w-5 h-5 text-[#E5B86A]" />
+              <div className="w-9 h-9 rounded-lg bg-[#526B50] flex items-center justify-center text-white shadow-xs">
+                <Utensils className="w-5 h-5" />
               </div>
               <div>
-                <span className="text-xl md:text-2xl font-black tracking-tight text-[#F5F5F0] block leading-none">
-                  Serve<span className="text-[#E5B86A]">Sync</span>
+                <span className="text-xl md:text-2xl font-bold tracking-tight text-[#20251F] block leading-none">
+                  Dinning Room
                 </span>
-                <span className="text-[10px] md:text-xs text-[#A8B3AA] tracking-wider uppercase font-medium">
-                  Digital Dining
+                <span className="text-[10px] md:text-xs text-[#74796F] tracking-wider uppercase font-medium">
+                  Artisanal Dining
                 </span>
               </div>
             </div>
 
-            {/* Center Table Indicator (Tablet/Desktop) */}
-            <div className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#222825] border border-[#38443C] text-xs">
-              <span className="w-2 h-2 rounded-full bg-[#82B895] animate-pulse" />
-              <span className="text-[#A8B3AA]">Dining at</span>
-              <span className="font-bold text-[#E5B86A]">
-                Table {tableNumber}
-              </span>
+            <div className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#EFF1EA] border border-[#E6E8E1] text-xs">
+              <span className="w-2 h-2 rounded-full bg-[#526B50] animate-pulse" />
+              <span className="text-[#74796F]">Table</span>
+              <span className="font-bold text-[#20251F]">#{tableNumber}</span>
             </div>
 
-            {/* Right Action: Cart & Quick Switchers */}
             <div className="flex items-center gap-2 sm:gap-3">
-              {/* Kitchen KDS Link */}
               <button
                 type="button"
                 onClick={() => navigate('/kitchen')}
-                title="Open Kitchen Display Station"
-                className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#222825] border border-[#38443C] hover:border-[#82B895] text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0] transition-colors cursor-pointer"
+                title="Kitchen Display"
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-[#74796F] hover:text-[#20251F] hover:bg-[#EFF1EA] border border-transparent hover:border-[#E6E8E1] transition-colors cursor-pointer"
               >
-                <ChefHat className="w-4 h-4 text-[#82B895]" />
+                <ChefHat className="w-4 h-4 text-[#526B50]" />
                 <span>Kitchen</span>
               </button>
 
-              {/* Admin Portal Link */}
               <button
                 type="button"
                 onClick={() => navigate('/admin/dashboard')}
-                title="Open Admin Dashboard"
-                className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#222825] border border-[#38443C] hover:border-[#82B895] text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0] transition-colors cursor-pointer"
+                title="Admin Dashboard"
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-[#74796F] hover:text-[#20251F] hover:bg-[#EFF1EA] border border-transparent hover:border-[#E6E8E1] transition-colors cursor-pointer"
               >
-                <Shield className="w-4 h-4 text-[#E5B86A]" />
+                <Shield className="w-4 h-4 text-[#526B50]" />
                 <span>Admin</span>
               </button>
 
-              {/* Cart Button */}
               <button
                 type="button"
                 onClick={() => navigate(`/cart?table=${tableNumber}`)}
-                aria-label={`View cart with ${totalCartCount} items`}
+                aria-label={`View order cart with ${totalCartCount} items`}
                 className="
-                  relative flex items-center gap-2 px-3.5 py-2 md:px-4 md:py-2.5 rounded-xl
-                  bg-[#222825] border border-[#38443C] hover:border-[#82B895] text-[#F5F5F0]
-                  hover:bg-[#2A332E] transition-all duration-200 cursor-pointer
-                  focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                  relative flex items-center gap-2 px-3.5 py-2 md:px-4 md:py-2 rounded-md
+                  bg-[#526B50] text-white hover:bg-[#40563F] shadow-xs
+                  transition-all duration-150 cursor-pointer
+                  focus:outline-none focus:ring-2 focus:ring-[#526B50]/30
                 "
               >
-                <ShoppingBag className="w-5 h-5 text-[#E5B86A]" />
+                <ShoppingBag className="w-4 h-4" />
                 <span className="hidden sm:inline text-xs font-semibold">
                   Cart
                 </span>
-                {totalCartCount > 0 ? (
-                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-[#24543A] text-[#F5F0E6] text-xs font-bold border border-[#326B4B] shadow-sm animate-scale-in">
-                    {totalCartCount}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-[#171A19] text-[#A8B3AA] text-xs font-medium border border-[#38443C]">
-                    0
-                  </span>
-                )}
+                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white text-[#526B50] text-xs font-bold">
+                  {totalCartCount}
+                </span>
               </button>
             </div>
           </div>
         </div>
 
-        {/* Mobile-Only Table Strip */}
-        <div className="sm:hidden px-4 py-2 bg-[#222825]/90 border-t border-[#38443C] flex items-center justify-between text-xs">
+        <div className="sm:hidden px-4 py-2 bg-[#EFF1EA] border-t border-[#E6E8E1] flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
-            <MapPin className="w-3.5 h-3.5 text-[#E5B86A]" />
-            <span className="text-[#A8B3AA]">Ordering for</span>
-            <span className="font-bold text-[#F5F5F0]">Table {tableNumber}</span>
+            <MapPin className="w-3.5 h-3.5 text-[#526B50]" />
+            <span className="text-[#74796F]">Dining at</span>
+            <span className="font-bold text-[#20251F]">Table {tableNumber}</span>
           </div>
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => navigate('/kitchen')}
-              className="text-[#82B895] font-semibold text-[11px] underline"
+              className="text-[#526B50] font-semibold text-xs hover:underline cursor-pointer"
             >
               Kitchen
             </button>
             <button
               type="button"
               onClick={() => navigate('/admin/dashboard')}
-              className="text-[#E5B86A] font-semibold text-[11px] underline"
+              className="text-[#526B50] font-semibold text-xs hover:underline cursor-pointer"
             >
               Admin
             </button>
@@ -267,96 +217,71 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
         </div>
       </header>
 
-      {/* ─────────────────────────────────────────────────────────────
-          B. RESTAURANT INTRODUCTION & HERO
-      ───────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-[#222825] to-[#171A19] border-b border-[#38443C] pt-8 pb-10">
+      <section className="bg-white border-b border-[#E6E8E1] pt-8 pb-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div className="max-w-2xl">
-              {/* Badge */}
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#24543A]/30 border border-[#326B4B] text-xs text-[#82B895] font-medium mb-3">
-                <Sparkles className="w-3.5 h-3.5 text-[#E5B86A]" />
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#EFF1EA] border border-[#E6E8E1] text-xs text-[#526B50] font-medium mb-3">
+                <Sparkles className="w-3.5 h-3.5" />
                 <span>{RESTAURANT_INFO.tagline}</span>
               </div>
 
-              {/* Restaurant Name Heading */}
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#F5F5F0] tracking-tight leading-tight mb-2">
-                {RESTAURANT_INFO.name}
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#20251F] tracking-tight leading-tight mb-2">
+                Dinning Room
               </h1>
 
-              {/* Description */}
-              <p className="text-sm sm:text-base text-[#A8B3AA] leading-relaxed mb-4">
+              <p className="text-sm sm:text-base text-[#74796F] leading-relaxed mb-4">
                 {RESTAURANT_INFO.description}
               </p>
 
-              {/* Meta pills: Rating, Prep Time, Service */}
-              <div className="flex flex-wrap items-center gap-3 text-xs text-[#A8B3AA]">
-                <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#171A19] border border-[#38443C]">
-                  <Star className="w-3.5 h-3.5 fill-[#E5B86A] text-[#E5B86A]" />
-                  <span className="font-bold text-[#F5F5F0]">
-                    {RESTAURANT_INFO.rating}
-                  </span>
-                  <span className="text-[#A8B3AA]">
-                    ({RESTAURANT_INFO.reviewsCount})
-                  </span>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-[#74796F]">
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#F7F7F4] border border-[#E6E8E1]">
+                  <Star className="w-3.5 h-3.5 fill-[#526B50] text-[#526B50]" />
+                  <span className="font-bold text-[#20251F]">{RESTAURANT_INFO.rating}</span>
+                  <span>({RESTAURANT_INFO.reviewsCount})</span>
                 </div>
 
-                <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#171A19] border border-[#38443C]">
-                  <Clock className="w-3.5 h-3.5 text-[#82B895]" />
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#F7F7F4] border border-[#E6E8E1]">
+                  <Clock className="w-3.5 h-3.5 text-[#526B50]" />
                   <span>Prep: {RESTAURANT_INFO.prepTime}</span>
                 </div>
 
-                <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#171A19] border border-[#38443C]">
-                  <MapPin className="w-3.5 h-3.5 text-[#E5B86A]" />
-                  <span>Direct Table Service</span>
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#F7F7F4] border border-[#E6E8E1]">
+                  <MapPin className="w-3.5 h-3.5 text-[#526B50]" />
+                  <span>Tabletop QR Ordering</span>
                 </div>
               </div>
             </div>
 
-            {/* Quick Summary Pill for Table */}
-            <div className="bg-[#222825] border border-[#38443C] p-4 rounded-2xl flex items-center gap-4 self-start md:self-auto min-w-[200px]">
-              <div className="w-12 h-12 rounded-xl bg-[#24543A] border border-[#326B4B] flex flex-col items-center justify-center text-[#F5F0E6]">
-                <span className="text-[10px] uppercase font-bold leading-none">
-                  Table
-                </span>
-                <span className="text-xl font-black leading-tight text-[#E5B86A]">
-                  {tableNumber}
-                </span>
+            <div className="bg-[#FAFBF8] border border-[#E6E8E1] p-4 rounded-xl flex items-center gap-3.5 self-start md:self-auto min-w-[200px]">
+              <div className="w-12 h-12 rounded-lg bg-[#EFF1EA] border border-[#E6E8E1] flex flex-col items-center justify-center text-[#20251F]">
+                <span className="text-[10px] uppercase font-bold text-[#74796F] leading-none">Table</span>
+                <span className="text-xl font-bold leading-tight text-[#526B50]">#{tableNumber}</span>
               </div>
               <div>
-                <p className="text-xs font-semibold text-[#F5F5F0]">
-                  QR Order Active
-                </p>
-                <p className="text-[11px] text-[#A8B3AA]">
-                  Items will be delivered here
-                </p>
+                <p className="text-xs font-semibold text-[#20251F]">Direct Table Service</p>
+                <p className="text-[11px] text-[#74796F]">Orders served fresh here</p>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────────────────────
-          C & D. SEARCH & CATEGORY CONTROLS SECTION
-      ───────────────────────────────────────────────────────────── */}
-      <section className="sticky top-16 md:top-20 z-30 bg-[#171A19]/95 backdrop-blur-md border-b border-[#38443C] py-4 shadow-lg shadow-black/20">
+      <section className="sticky top-16 md:top-18 z-30 bg-[#F7F7F4]/95 backdrop-blur-md border-b border-[#E6E8E1] py-3.5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
-          {/* Top Bar: Search Input & Veg Filter Toggle */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            {/* Search Input */}
             <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A8B3AA]" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#74796F]" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search dishes, ingredients, or flavors..."
+                placeholder="Search food, ingredients, or flavors..."
                 aria-label="Search menu items"
                 className="
-                  w-full pl-10 pr-10 py-2.5 rounded-xl bg-[#222825] border border-[#38443C]
-                  text-sm text-[#F5F5F0] placeholder-[#A8B3AA] transition-colors
-                  focus:outline-none focus:border-[#82B895] focus:ring-2 focus:ring-[#82B895]/30
+                  w-full pl-10 pr-10 py-2 rounded-md bg-white border border-[#E6E8E1]
+                  text-sm text-[#20251F] placeholder:text-[#74796F] transition-colors
+                  focus:outline-none focus:border-[#526B50] focus:ring-2 focus:ring-[#526B50]/20
                 "
               />
               {searchQuery && (
@@ -364,46 +289,40 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
                   type="button"
                   onClick={() => setSearchQuery('')}
                   aria-label="Clear search input"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#A8B3AA] hover:text-[#F5F5F0] p-1 cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#74796F] hover:text-[#20251F] p-1 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
             </div>
 
-            {/* Dietary Toggle: Veg Only */}
-            <div className="flex items-center justify-between sm:justify-end gap-2">
+            <div className="flex items-center justify-between sm:justify-end gap-2.5">
               <button
                 type="button"
                 onClick={() => setVegOnly((prev) => !prev)}
                 aria-pressed={vegOnly}
                 className={`
-                  inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold
-                  border transition-all duration-200 cursor-pointer
-                  focus:outline-none focus:ring-2 focus:ring-[#82B895]
+                  inline-flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold
+                  border transition-all duration-150 cursor-pointer
+                  focus:outline-none focus:ring-2 focus:ring-[#526B50]/30
                   ${
                     vegOnly
-                      ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600 shadow-sm'
-                      : 'bg-[#222825] text-[#A8B3AA] border-[#38443C] hover:text-[#F5F5F0] hover:border-[#82B895]/50'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : 'bg-white text-[#74796F] border-[#E6E8E1] hover:text-[#20251F] hover:bg-[#EFF1EA]'
                   }
                 `}
               >
-                <Leaf
-                  className={`w-3.5 h-3.5 ${
-                    vegOnly ? 'text-emerald-400' : 'text-[#A8B3AA]'
-                  }`}
-                />
-                <span>Pure Veg</span>
+                <Leaf className={`w-3.5 h-3.5 ${vegOnly ? 'text-emerald-600' : 'text-[#74796F]'}`} />
+                <span>Vegetarian Only</span>
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    vegOnly ? 'bg-emerald-400' : 'bg-transparent border border-[#A8B3AA]'
+                    vegOnly ? 'bg-emerald-600' : 'border border-[#74796F]'
                   }`}
                 />
               </button>
 
-              {/* Results Count indicator */}
-              <div className="text-xs text-[#A8B3AA] px-2 py-1">
-                <span className="font-bold text-[#F5F5F0]">
+              <div className="text-xs text-[#74796F] px-1">
+                <span className="font-bold text-[#20251F]">
                   {loading ? '—' : filteredItems.length}
                 </span>{' '}
                 {filteredItems.length === 1 ? 'dish' : 'dishes'}
@@ -411,7 +330,6 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
             </div>
           </div>
 
-          {/* Category Tabs — driven by actual API data */}
           <CategoryTabs
             categories={categories}
             activeCategory={selectedCategory}
@@ -421,72 +339,51 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────────────────────
-          E. MAIN FOOD GRID, LOADING, ERROR & EMPTY STATES
-      ───────────────────────────────────────────────────────────── */}
-      <main
-        id="menu-items-grid"
-        className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"
-      >
-        {/* ── LOADING STATE ── */}
+      <main id="menu-items-grid" className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
         {loading && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
-            <Loader2 className="w-10 h-10 text-[#82B895] animate-spin mb-4" />
-            <p className="text-sm text-[#A8B3AA] font-medium">
-              Loading the menu…
-            </p>
+            <Loader2 className="w-8 h-8 text-[#526B50] animate-spin mb-3" />
+            <p className="text-sm text-[#74796F] font-medium">Preparing fresh menu…</p>
           </div>
         )}
 
-        {/* ── ERROR STATE ── */}
         {!loading && error && (
-          <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-rose-800/40 my-8">
-            <div className="w-16 h-16 rounded-2xl bg-[#171A19] border border-rose-700/40 flex items-center justify-center mb-4">
-              <AlertTriangle className="w-8 h-8 text-rose-400 opacity-80" />
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-xl bg-white border border-[#E6E8E1] my-8 shadow-xs max-w-md mx-auto">
+            <div className="w-12 h-12 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-center mb-3">
+              <AlertTriangle className="w-6 h-6 text-rose-600" />
             </div>
-            <h3 className="text-xl font-bold text-[#F5F5F0] mb-2">
-              Unable to load the menu
-            </h3>
-            <p className="text-sm text-[#A8B3AA] max-w-md mb-6 leading-relaxed">
-              {error}
-            </p>
+            <h3 className="text-base font-bold text-[#20251F] mb-1">Unable to Load Menu</h3>
+            <p className="text-xs text-[#74796F] mb-5 leading-relaxed">{error}</p>
             <button
               type="button"
               onClick={refetch}
-              className="
-                inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
-                bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-sm font-semibold
-                border border-[#326B4B] transition-colors cursor-pointer
-                focus:outline-none focus:ring-2 focus:ring-[#82B895]
-              "
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#526B50] hover:bg-[#40563F] text-white text-xs font-semibold transition-colors cursor-pointer"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-3.5 h-3.5" />
               Try Again
             </button>
           </div>
         )}
 
-        {/* ── CONTENT (foods loaded, no error) ── */}
         {!loading && !error && (
           <>
-            {/* Active Filters Summary (if any filter is applied) */}
             {(searchQuery || selectedCategory !== 'All' || vegOnly) && (
-              <div className="flex items-center justify-between flex-wrap gap-2 mb-6 pb-3 border-b border-[#38443C]">
-                <div className="flex items-center gap-2 text-xs text-[#A8B3AA]">
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-6 pb-3 border-b border-[#E6E8E1]">
+                <div className="flex items-center gap-2 text-xs text-[#74796F]">
                   <span>Active filters:</span>
                   {selectedCategory !== 'All' && (
-                    <span className="px-2.5 py-1 rounded-md bg-[#222825] border border-[#38443C] text-[#F5F5F0] font-medium">
+                    <span className="px-2 py-0.5 rounded-md bg-white border border-[#E6E8E1] text-[#20251F] font-medium">
                       {selectedCategory}
                     </span>
                   )}
                   {vegOnly && (
-                    <span className="px-2.5 py-1 rounded-md bg-emerald-950/60 border border-emerald-700/60 text-emerald-300 font-medium">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-medium">
                       Veg Only
                     </span>
                   )}
                   {searchQuery && (
-                    <span className="px-2.5 py-1 rounded-md bg-[#222825] border border-[#38443C] text-[#E5B86A] font-medium">
-                      "{searchQuery}"
+                    <span className="px-2 py-0.5 rounded-md bg-white border border-[#E6E8E1] text-[#20251F] font-medium">
+                      &quot;{searchQuery}&quot;
                     </span>
                   )}
                 </div>
@@ -494,44 +391,34 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
                 <button
                   type="button"
                   onClick={handleResetFilters}
-                  className="inline-flex items-center gap-1.5 text-xs text-[#E5B86A] hover:underline cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#82B895] rounded px-1"
+                  className="inline-flex items-center gap-1.5 text-xs text-[#526B50] font-medium hover:underline cursor-pointer"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  Reset all filters
+                  <RotateCcw className="w-3 h-3" />
+                  Reset all
                 </button>
               </div>
             )}
 
-            {/* ── EMPTY STATE: API returned zero foods ── */}
             {foods.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-[#38443C] my-8">
-                <div className="w-16 h-16 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center text-[#A8B3AA] mb-4">
-                  <UtensilsCrossed className="w-8 h-8 opacity-40 text-[#E5B86A]" />
+              <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-xl bg-white border border-[#E6E8E1] my-8 shadow-xs max-w-md mx-auto">
+                <div className="w-12 h-12 rounded-lg bg-[#EFF1EA] border border-[#E6E8E1] flex items-center justify-center text-[#74796F] mb-3">
+                  <UtensilsCrossed className="w-6 h-6 text-[#526B50]" />
                 </div>
-                <h3 className="text-xl font-bold text-[#F5F5F0] mb-2">
-                  Menu is currently empty
-                </h3>
-                <p className="text-sm text-[#A8B3AA] max-w-md mb-6 leading-relaxed">
-                  No food items are available right now. Please check back soon
-                  or ask a staff member for assistance.
+                <h3 className="text-base font-bold text-[#20251F] mb-1">Menu is currently updating</h3>
+                <p className="text-xs text-[#74796F] mb-5 leading-relaxed">
+                  Our culinary team is updating today&apos;s selections. Please check back in a few moments.
                 </p>
                 <button
                   type="button"
                   onClick={refetch}
-                  className="
-                    inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
-                    bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-sm font-semibold
-                    border border-[#326B4B] transition-colors cursor-pointer
-                    focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                  "
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#526B50] hover:bg-[#40563F] text-white text-xs font-semibold transition-colors cursor-pointer"
                 >
-                  <RotateCcw className="w-4 h-4" />
+                  <RotateCcw className="w-3.5 h-3.5" />
                   Refresh
                 </button>
               </div>
             )}
 
-            {/* ── ITEMS GRID ── */}
             {foods.length > 0 && filteredItems.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredItems.map((item) => (
@@ -544,36 +431,22 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
               </div>
             )}
 
-            {/* ── NO FILTER MATCH (foods exist but filters yield nothing) ── */}
             {foods.length > 0 && filteredItems.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-[#38443C] my-8">
-                <div className="w-16 h-16 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center text-[#A8B3AA] mb-4">
-                  <Search className="w-8 h-8 opacity-40 text-[#E5B86A]" />
+              <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-xl bg-white border border-[#E6E8E1] my-8 shadow-xs max-w-md mx-auto">
+                <div className="w-12 h-12 rounded-lg bg-[#EFF1EA] border border-[#E6E8E1] flex items-center justify-center text-[#74796F] mb-3">
+                  <Search className="w-6 h-6 text-[#526B50]" />
                 </div>
-                <h3 className="text-xl font-bold text-[#F5F5F0] mb-2">
-                  No culinary matches found
-                </h3>
-                <p className="text-sm text-[#A8B3AA] max-w-md mb-6 leading-relaxed">
-                  We couldn&apos;t find any dishes matching your current
-                  selection{' '}
-                  {searchQuery && (
-                    <span className="text-[#E5B86A]">&quot;{searchQuery}&quot;</span>
-                  )}
-                  . Try adjusting your search term or exploring another
-                  category.
+                <h3 className="text-base font-bold text-[#20251F] mb-1">No matching dishes</h3>
+                <p className="text-xs text-[#74796F] mb-5 leading-relaxed">
+                  We couldn&apos;t find any items matching your selection. Try clearing your search or switching categories.
                 </p>
                 <button
                   type="button"
                   onClick={handleResetFilters}
-                  className="
-                    inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
-                    bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-sm font-semibold
-                    border border-[#326B4B] transition-colors cursor-pointer
-                    focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                  "
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#526B50] hover:bg-[#40563F] text-white text-xs font-semibold transition-colors cursor-pointer"
                 >
-                  <RotateCcw className="w-4 h-4" />
-                  View Full Menu
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  View All Dishes
                 </button>
               </div>
             )}
@@ -581,47 +454,33 @@ export default function MenuPage({ onAddToCart: externalAddToCart }) {
         )}
       </main>
 
-      {/* ─────────────────────────────────────────────────────────────
-          FOOTER
-          Subtle restaurant branding & Member 1 responsibility note
-      ───────────────────────────────────────────────────────────── */}
-      <footer className="mt-auto border-t border-[#38443C] bg-[#222825] py-8 text-xs text-[#A8B3AA]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <footer className="mt-auto border-t border-[#E6E8E1] bg-white py-6 text-xs text-[#74796F]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-[#F5F5F0]">ServeSync</span>
-            <span>•</span>
-            <span>Customer Menu Module</span>
-            <span>•</span>
-            <span className="text-[#E5B86A]">Phase 1</span>
+            <span className="font-bold text-[#20251F]">Dinning Room</span>
+            <span>·</span>
+            <span>Artisanal Hospitality &amp; Dining</span>
           </div>
           <p className="text-center sm:text-right">
-            QR Ordering System • Table #{tableNumber} Active
+            Tabletop QR Ordering · Table #{tableNumber} Active
           </p>
         </div>
       </footer>
 
-      {/* ─────────────────────────────────────────────────────────────
-          FLOATING TOAST NOTIFICATION
-          Visible feedback when customer adds an item to cart
-      ───────────────────────────────────────────────────────────── */}
       {toastMessage && (
         <div
           role="status"
           aria-live="polite"
           className="
-            fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl
-            bg-[#24543A] text-[#F5F0E6] border border-[#326B4B] shadow-2xl
-            animate-bounce-subtle
+            fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-lg
+            bg-[#20251F] text-white shadow-md border border-[#20251F]
+            animate-in fade-in slide-in-from-bottom-2 duration-150
           "
         >
-          <CheckCircle2 className="w-5 h-5 text-[#82B895]" />
+          <CheckCircle2 className="w-4 h-4 text-[#82B895]" />
           <div>
-            <p className="text-xs font-bold leading-tight">
-              {toastMessage.title}
-            </p>
-            <p className="text-[11px] text-[#A8B3AA] leading-tight">
-              {toastMessage.message}
-            </p>
+            <p className="text-xs font-semibold leading-tight">{toastMessage.title}</p>
+            <p className="text-[11px] text-[#CBD0C5] leading-tight">{toastMessage.message}</p>
           </div>
         </div>
       )}

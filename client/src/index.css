@@ -1,1 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
+
+:root {
+  --bg: #F7F7F4;
+  --surface: #FFFFFF;
+  --surface-2: #EFF1EA;
+  --text-primary: #20251F;
+  --text-secondary: #74796F;
+  --accent: #526B50;
+  --accent-hover: #40563F;
+  --border: #E6E8E1;
+  --border-strong: #CBD0C5;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Manrope', sans-serif;
+  background: #F7F7F4;
+  color: #20251F;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Manrope', sans-serif;
+  font-weight: 700;
+  color: #20251F;
+}
+
+a {
+  color: #526B50;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #40563F;
+}
+
+input, button, select, textarea {
+  font-family: 'Manrope', sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid #526B50;
+  outline-offset: 2px;
+}

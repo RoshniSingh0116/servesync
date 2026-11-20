@@ -1,43 +1,20 @@
 import { useState } from 'react';
 import { Plus, Check, Star, UtensilsCrossed } from 'lucide-react';
 
-/**
- * MenuItemCard Component
- * Displays a single food item with image, dietary badge, price, and Add to Cart action.
- *
- * @param {Object} props
- * @param {Object} props.item - The food item data
- * @param {string|number} props.item.id - Unique ID
- * @param {string} props.item.name - Dish name
- * @param {string} props.item.description - Short description
- * @param {number} props.item.price - Price in INR
- * @param {string} props.item.category - Category name
- * @param {string} [props.item.image] - Image URL
- * @param {boolean} [props.item.isVeg] - Whether the item is vegetarian
- * @param {boolean} [props.item.isAvailable] - Whether the item is currently orderable
- * @param {boolean} [props.item.isPopular] - Whether marked as popular/bestseller
- * @param {Function} [props.onAddToCart] - Callback when item is added to cart
- */
 export default function MenuItemCard({ item, onAddToCart }) {
   const [imgError, setImgError] = useState(false);
   const [isAdded, setIsAdded] = useState(false);
 
   if (!item) return null;
 
-  // Bug fix: treat missing isAvailable as available (matches useFoods normalisation)
   const isAvailable = item.isAvailable !== false;
 
   const handleAdd = () => {
-    // Guard: never add an unavailable item (defensive — MenuPage also guards)
     if (!isAvailable) return;
 
-    // Trigger visual feedback
     setIsAdded(true);
-    setTimeout(() => {
-      setIsAdded(false);
-    }, 1200);
+    setTimeout(() => setIsAdded(false), 1200);
 
-    // Trigger parent callback
     if (typeof onAddToCart === 'function') {
       onAddToCart(item);
     }
@@ -48,16 +25,15 @@ export default function MenuItemCard({ item, onAddToCart }) {
       data-testid={`menu-card-${item.id}`}
       aria-disabled={!isAvailable}
       className={`
-        group relative flex flex-col h-full bg-[#F5F0E6] text-[#202722]
-        rounded-2xl border overflow-hidden
-        shadow-sm transition-all duration-300
+        group relative flex flex-col h-full bg-white
+        rounded-lg border border-[#E6E8E1] overflow-hidden
+        shadow-sm transition-all duration-200
         ${isAvailable
-          ? 'border-[#DDD8CC] hover:shadow-xl hover:-translate-y-1'
-          : 'border-[#C8C2B4] opacity-60 cursor-not-allowed'}
+          ? 'hover:shadow-md hover:-translate-y-0.5'
+          : 'opacity-60 cursor-not-allowed'}
       `}
     >
-      {/* Image Container with Consistent Aspect Ratio */}
-      <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#EAE4D6]">
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#EFF1EA]">
         {!imgError && item.image ? (
           <img
             src={item.image}
@@ -68,96 +44,59 @@ export default function MenuItemCard({ item, onAddToCart }) {
           />
         ) : (
           <div
-            className="h-full w-full flex flex-col items-center justify-center p-4 text-[#68736A] bg-[#EAE4D6]"
+            className="h-full w-full flex flex-col items-center justify-center p-4 text-[#74796F]"
             aria-label={`${item.name} image placeholder`}
           >
-            <UtensilsCrossed className="w-10 h-10 mb-2 opacity-60 text-[#24543A]" />
-            <span className="text-xs font-medium text-center text-[#68736A]">
+            <UtensilsCrossed className="w-10 h-10 mb-2 opacity-40 text-[#526B50]" />
+            <span className="text-xs font-medium text-center text-[#74796F]">
               {item.name}
             </span>
           </div>
         )}
 
-        {/* Top Badges Overlay */}
-        <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none">
-          {/* Veg / Non-Veg Indicator */}
+        <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-2 pointer-events-none">
           <div
-            className="flex items-center justify-center w-6 h-6 rounded-md bg-[#F5F0E6]/95 shadow-sm backdrop-blur-sm pointer-events-auto"
+            className="flex items-center justify-center w-6 h-6 rounded bg-white/90 shadow-sm pointer-events-auto"
             title={item.isVeg ? 'Vegetarian' : 'Non-Vegetarian'}
             aria-label={item.isVeg ? 'Vegetarian' : 'Non-Vegetarian'}
           >
             <span
-              className={`
-                w-4 h-4 border flex items-center justify-center rounded-[3px]
-                ${item.isVeg ? 'border-emerald-600' : 'border-rose-600'}
-              `}
-            >
-              <span
-                className={`
-                  w-2 h-2 rounded-full
-                  ${item.isVeg ? 'bg-emerald-600' : 'bg-rose-600'}
-                `}
-              />
-            </span>
+              className={`w-3 h-3 rounded-full ${item.isVeg ? 'bg-emerald-500' : 'bg-rose-500'}`}
+            />
           </div>
 
-          {/* Popular / Bestseller Badge — hidden when unavailable */}
           {item.isPopular && isAvailable && (
-            <span
-              className="
-                inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold
-                bg-[#E5B86A] text-[#171A19] shadow-md pointer-events-auto
-              "
-            >
-              <Star className="w-3 h-3 fill-[#171A19]" />
-              Bestseller
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[#526B50] text-white shadow-sm pointer-events-auto">
+              <Star className="w-3 h-3 fill-white" />
+              Popular
             </span>
           )}
 
-          {/* Unavailable Badge — shown when isAvailable is false */}
           {!isAvailable && (
-            <span
-              className="
-                inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold
-                bg-[#2A2A2A]/80 text-[#A8A8A8] shadow-md pointer-events-auto backdrop-blur-sm
-              "
-              aria-label="Currently unavailable"
-            >
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-[#E6E8E1] text-[#74796F] pointer-events-auto">
               Unavailable
             </span>
           )}
         </div>
       </div>
 
-      {/* Card Content */}
-      <div className="flex flex-col flex-1 p-5">
-        {/* Category Pill & ID Tag */}
-        <div className="flex items-center justify-between gap-2 mb-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#68736A]">
-            {item.category}
-          </span>
-        </div>
+      <div className="flex flex-col flex-1 p-4">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#74796F] mb-1">
+          {item.category}
+        </span>
 
-        {/* Food Item Name */}
-        <h3 className="text-lg font-bold text-[#202722] leading-snug line-clamp-1 mb-1.5 group-hover:text-[#24543A] transition-colors">
+        <h3 className="text-base font-semibold text-[#20251F] leading-snug line-clamp-1 mb-1">
           {item.name}
         </h3>
 
-        {/* Short Description */}
-        <p className="text-xs text-[#68736A] leading-relaxed line-clamp-2 mb-4">
+        <p className="text-xs text-[#74796F] leading-relaxed line-clamp-2 mb-4 flex-1">
           {item.description}
         </p>
 
-        {/* Price and Add to Cart Section (Pinned to Bottom) */}
-        <div className="mt-auto pt-3 border-t border-[#DDD8CC]/70 flex items-center justify-between gap-3">
-          <div>
-            <span className="text-[11px] uppercase tracking-wider block text-[#68736A] font-medium leading-none mb-0.5">
-              Price
-            </span>
-            <span className="text-lg font-bold text-[#202722] tracking-tight">
-              ₹{item.price}
-            </span>
-          </div>
+        <div className="mt-auto pt-3 border-t border-[#E6E8E1] flex items-center justify-between gap-3">
+          <span className="text-base font-bold text-[#526B50]">
+            ₹{item.price}
+          </span>
 
           <button
             type="button"
@@ -169,14 +108,14 @@ export default function MenuItemCard({ item, onAddToCart }) {
                 : `${item.name} is currently unavailable`
             }
             className={`
-              relative inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl
+              inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md
               text-xs font-semibold transition-all duration-200
-              focus:outline-none focus:ring-2 focus:ring-[#82B895] focus:ring-offset-2 focus:ring-offset-[#F5F0E6]
+              focus:outline-none focus:ring-2 focus:ring-[#526B50]/40
               ${!isAvailable
-                ? 'bg-[#D0CAB8] text-[#A09A8C] cursor-not-allowed'
+                ? 'bg-[#E6E8E1] text-[#74796F] cursor-not-allowed'
                 : isAdded
-                  ? 'bg-emerald-700 text-white scale-95 shadow-inner cursor-pointer'
-                  : 'bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] shadow-sm hover:shadow-md active:scale-95 cursor-pointer'
+                  ? 'bg-emerald-600 text-white scale-95 cursor-pointer'
+                  : 'bg-[#526B50] hover:bg-[#40563F] text-white active:scale-95 cursor-pointer'
               }
             `}
           >
@@ -190,7 +129,7 @@ export default function MenuItemCard({ item, onAddToCart }) {
             ) : (
               <>
                 <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>Add to Cart</span>
+                <span>Add</span>
               </>
             )}
           </button>

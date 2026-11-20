@@ -1,19 +1,3 @@
-/**
- * AdminDashboardPage.jsx
- * ServeSync — Admin Dashboard (Member 3, Commit 5)
- *
- * Fully integrated Admin Dashboard connected to:
- *  - GET  /api/admin/dashboard  (overview summary statistics)
- *  - GET  /api/admin/foods      (menu food items)
- *  - POST /api/foods            (add food item)
- *  - PUT  /api/foods/:id        (edit food item & toggle availability)
- *  - DELETE /api/foods/:id     (remove food item)
- *  - GET  /api/admin/orders     (orders overview list)
- *
- * Implements authentication guard, loading indicators, error handling,
- * empty state management, and real-time dashboard refreshes.
- */
-
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -24,12 +8,9 @@ import {
   Menu as MenuIcon,
   X,
   Utensils,
-  TrendingUp,
   CheckCircle2,
   XCircle,
-  Star,
   ChevronRight,
-  Leaf,
   ChefHat,
   ClipboardList,
   Clock,
@@ -39,7 +20,6 @@ import {
   RefreshCw,
   AlertCircle,
   Search,
-  SlidersHorizontal,
   ExternalLink,
   QrCode,
 } from 'lucide-react';
@@ -57,7 +37,6 @@ import {
   clearAdminSession,
 } from '../../services/adminApi';
 
-/* ─── Sidebar nav links ─────────────────────────────────────────────── */
 const NAV_LINKS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'menu', label: 'Menu Management', icon: UtensilsCrossed },
@@ -65,56 +44,51 @@ const NAV_LINKS = [
   { id: 'tables', label: 'Table QR Codes', icon: QrCode },
 ];
 
-/* ─── Sidebar Component ─────────────────────────────────────────────── */
 function Sidebar({ activeSection, setActiveSection, onClose, onLogout, navigate, adminUser }) {
   return (
-    <aside className="flex flex-col h-full bg-[#171A19] border-r border-[#38443C] w-64">
-      {/* Brand */}
-      <div className="flex items-center justify-between px-5 py-5 border-b border-[#38443C]">
+    <aside className="flex flex-col h-full bg-white border-r border-[#E6E8E1] w-64">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[#E6E8E1]">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#24543A] to-[#171A19] border border-[#326B4B] flex items-center justify-center shadow">
-            <Utensils className="w-5 h-5 text-[#E5B86A]" />
+          <div className="w-8 h-8 rounded-lg bg-[#526B50] flex items-center justify-center text-white shadow-xs">
+            <Utensils className="w-4 h-4" />
           </div>
           <div>
-            <span className="text-lg font-black tracking-tight text-[#F5F5F0] block leading-none">
-              Serve<span className="text-[#E5B86A]">Sync</span>
+            <span className="text-base font-bold text-[#20251F] block leading-none">
+              Dinning Room
             </span>
-            <span className="text-[10px] text-[#A8B3AA] uppercase tracking-widest font-medium">
+            <span className="text-[10px] text-[#74796F] uppercase tracking-wider font-semibold block mt-0.5">
               Admin Portal
             </span>
           </div>
         </div>
-        {/* Close button — mobile only */}
         {onClose && (
           <button
             type="button"
             onClick={onClose}
             aria-label="Close sidebar"
-            className="lg:hidden text-[#A8B3AA] hover:text-[#F5F5F0] p-1 rounded cursor-pointer"
+            className="lg:hidden text-[#74796F] hover:text-[#20251F] p-1 rounded-md cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         )}
       </div>
 
-      {/* Admin User Badge */}
       {adminUser && (
-        <div className="px-4 py-3 mx-3 mt-3 rounded-xl bg-[#222825] border border-[#38443C] flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-[#24543A] text-[#82B895] flex items-center justify-center text-xs font-bold uppercase">
+        <div className="px-4 py-2.5 mx-3 mt-3 rounded-lg bg-[#FAFBF8] border border-[#E6E8E1] flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-md bg-[#EFF1EA] text-[#526B50] flex items-center justify-center text-xs font-bold uppercase">
             {adminUser.username?.[0] || 'A'}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-bold text-[#F5F5F0] truncate leading-tight">
+            <p className="text-xs font-semibold text-[#20251F] truncate leading-tight">
               {adminUser.username || 'Admin'}
             </p>
-            <p className="text-[10px] text-[#82B895] capitalize font-medium leading-tight">
+            <p className="text-[10px] text-[#74796F] capitalize font-medium leading-tight">
               {adminUser.role || 'Administrator'}
             </p>
           </div>
         </div>
       )}
 
-      {/* Nav Links */}
       <nav aria-label="Admin navigation" className="flex-1 px-3 py-4 space-y-1">
         {NAV_LINKS.map(({ id, label, icon: Icon }) => {
           const isActive = activeSection === id;
@@ -127,55 +101,52 @@ function Sidebar({ activeSection, setActiveSection, onClose, onLogout, navigate,
                 onClose?.();
               }}
               className={`
-                w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+                w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold
                 transition-all duration-150 cursor-pointer text-left
-                focus:outline-none focus:ring-2 focus:ring-[#82B895]
                 ${
                   isActive
-                    ? 'bg-[#24543A] text-[#F5F5F0] border border-[#326B4B] shadow-md'
-                    : 'text-[#A8B3AA] hover:text-[#F5F5F0] hover:bg-[#222825]'
+                    ? 'bg-[#526B50] text-white shadow-xs'
+                    : 'text-[#74796F] hover:text-[#20251F] hover:bg-[#EFF1EA]'
                 }
               `}
             >
-              <Icon className={`w-4.5 h-4.5 ${isActive ? 'text-[#E5B86A]' : ''}`} />
+              <Icon className="w-4 h-4" />
               <span className="flex-1">{label}</span>
-              {isActive && <ChevronRight className="w-3.5 h-3.5 text-[#82B895]" />}
+              {isActive && <ChevronRight className="w-3.5 h-3.5 opacity-80" />}
             </button>
           );
         })}
 
-        {/* Demo Jump Links */}
-        <div className="pt-4 mt-4 border-t border-[#38443C]/60 space-y-1">
-          <p className="px-3 text-[10px] uppercase font-bold text-[#68736A] tracking-wider mb-2">
-            Quick Views
+        <div className="pt-4 mt-4 border-t border-[#E6E8E1] space-y-1">
+          <p className="px-3 text-[10px] uppercase font-bold text-[#74796F] tracking-wider mb-1.5">
+            Quick Links
           </p>
           <button
             type="button"
             onClick={() => navigate('/menu')}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0] hover:bg-[#222825] cursor-pointer"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium text-[#74796F] hover:text-[#20251F] hover:bg-[#EFF1EA] cursor-pointer"
           >
-            <Utensils className="w-4 h-4 text-[#E5B86A]" />
+            <Utensils className="w-4 h-4 text-[#526B50]" />
             Customer Menu
           </button>
           <button
             type="button"
             onClick={() => navigate('/kitchen')}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0] hover:bg-[#222825] cursor-pointer"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium text-[#74796F] hover:text-[#20251F] hover:bg-[#EFF1EA] cursor-pointer"
           >
-            <ChefHat className="w-4 h-4 text-[#82B895]" />
-            Kitchen KDS
+            <ChefHat className="w-4 h-4 text-[#526B50]" />
+            Kitchen Display
           </button>
         </div>
       </nav>
 
-      {/* Logout */}
-      <div className="px-3 pb-5 border-t border-[#38443C] pt-4">
+      <div className="px-3 pb-4 border-t border-[#E6E8E1] pt-3">
         <button
           type="button"
           onClick={onLogout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#A8B3AA] hover:text-rose-400 hover:bg-rose-950/30 border border-transparent hover:border-rose-700/40 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-500"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium text-[#74796F] hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
         >
-          <LogOut className="w-4.5 h-4.5" />
+          <LogOut className="w-4 h-4" />
           Sign Out
         </button>
       </div>
@@ -183,16 +154,13 @@ function Sidebar({ activeSection, setActiveSection, onClose, onLogout, navigate,
   );
 }
 
-/* ─── Main Admin Dashboard Page ─────────────────────────────────────── */
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
   const adminUser = getAdminUser();
 
-  // Navigation state
   const [activeSection, setActiveSection] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Backend state: Dashboard Statistics
   const [stats, setStats] = useState({
     totalFoods: 0,
     totalFoodItems: 0,
@@ -208,27 +176,20 @@ export default function AdminDashboardPage() {
   const [loadingStats, setLoadingStats] = useState(true);
   const [statsError, setStatsError] = useState(null);
 
-  // Backend state: Foods List
   const [foods, setFoods] = useState([]);
   const [loadingFoods, setLoadingFoods] = useState(true);
   const [foodsError, setFoodsError] = useState(null);
 
-  // Backend state: Orders List
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [ordersError, setOrdersError] = useState(null);
 
-  // UI action feedback
-  const [feedback, setFeedback] = useState(null); // { type: 'success' | 'error', text: string }
+  const [feedback, setFeedback] = useState(null);
 
-  // Food Form Modal state
-  const [formMode, setFormMode] = useState(null); // 'add' | 'edit' | null
+  const [formMode, setFormMode] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [formError, setFormError] = useState('');
 
-  /* ─── Data Fetching ─────────────────────────────────────────────────── */
-
-  // 1. Fetch dashboard statistics from GET /api/admin/dashboard
   const fetchDashboardStats = useCallback(async () => {
     try {
       setLoadingStats(true);
@@ -255,14 +216,12 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
-  // 2. Fetch all food items from GET /api/admin/foods
   const fetchFoodsList = useCallback(async () => {
     try {
       setLoadingFoods(true);
       setFoodsError(null);
       const data = await getAdminFoods();
       const rawList = Array.isArray(data?.foods) ? data.foods : [];
-      // Normalise each item with id = _id for FoodTable compatibility
       const normalised = rawList.map((item) => ({
         ...item,
         id: String(item._id || item.id),
@@ -277,7 +236,6 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
-  // 3. Fetch all orders from GET /api/admin/orders
   const fetchOrdersList = useCallback(async () => {
     try {
       setLoadingOrders(true);
@@ -292,17 +250,14 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
-  // Refresh all sections
   const refreshAll = useCallback(async () => {
     await Promise.all([fetchDashboardStats(), fetchFoodsList(), fetchOrdersList()]);
   }, [fetchDashboardStats, fetchFoodsList, fetchOrdersList]);
 
-  // Initial load on mount
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
 
-  // Auto-clear feedback after 4 seconds
   useEffect(() => {
     if (feedback) {
       const timer = setTimeout(() => setFeedback(null), 4000);
@@ -310,9 +265,6 @@ export default function AdminDashboardPage() {
     }
   }, [feedback]);
 
-  /* ─── CRUD Action Handlers ─────────────────────────────────────────── */
-
-  // Add new food item via POST /api/foods
   async function handleAdd(formData) {
     setFormError('');
     try {
@@ -320,7 +272,6 @@ export default function AdminDashboardPage() {
       setFeedback({ type: 'success', text: `"${formData.name}" added successfully.` });
       setFormMode(null);
       setEditTarget(null);
-      // Refresh food list and dashboard statistics
       fetchFoodsList();
       fetchDashboardStats();
     } catch (err) {
@@ -329,7 +280,6 @@ export default function AdminDashboardPage() {
     }
   }
 
-  // Edit food item via PUT /api/foods/:id
   async function handleEdit(formData) {
     setFormError('');
     const targetId = editTarget?._id || editTarget?.id;
@@ -340,7 +290,6 @@ export default function AdminDashboardPage() {
       setFeedback({ type: 'success', text: `"${formData.name}" updated successfully.` });
       setFormMode(null);
       setEditTarget(null);
-      // Refresh food list and dashboard statistics
       fetchFoodsList();
       fetchDashboardStats();
     } catch (err) {
@@ -349,12 +298,10 @@ export default function AdminDashboardPage() {
     }
   }
 
-  // Delete food item via DELETE /api/foods/:id
   async function handleDelete(id) {
     try {
       await deleteFoodItem(id);
       setFeedback({ type: 'success', text: 'Food item deleted successfully.' });
-      // Refresh food list and dashboard statistics
       fetchFoodsList();
       fetchDashboardStats();
     } catch (err) {
@@ -365,7 +312,6 @@ export default function AdminDashboardPage() {
     }
   }
 
-  // Toggle food availability via PUT /api/foods/:id
   async function handleToggleAvail(id) {
     const item = foods.find((f) => String(f._id || f.id) === String(id));
     if (!item) return;
@@ -373,20 +319,17 @@ export default function AdminDashboardPage() {
     const nextAvail = !item.isAvailable;
     try {
       await updateFoodItem(id, { isAvailable: nextAvail });
-      // Optimistic or fresh update
       setFoods((prev) =>
         prev.map((f) =>
           String(f._id || f.id) === String(id) ? { ...f, isAvailable: nextAvail } : f
         )
       );
-      // Refresh stats
       fetchDashboardStats();
     } catch (err) {
       setFeedback({
         type: 'error',
         text: err.message || 'Failed to update availability status.',
       });
-      // Rollback to server state
       fetchFoodsList();
     }
   }
@@ -417,8 +360,7 @@ export default function AdminDashboardPage() {
   const isRefreshing = loadingStats || loadingFoods || loadingOrders;
 
   return (
-    <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] flex selection:bg-[#24543A] selection:text-[#F5F0E6]">
-      {/* ── Desktop Sidebar (fixed) ────────────────────────────────── */}
+    <div className="min-h-screen bg-[#F7F7F4] text-[#20251F] flex font-sans">
       <div className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:w-64">
         <Sidebar
           activeSection={activeSection}
@@ -430,15 +372,14 @@ export default function AdminDashboardPage() {
         />
       </div>
 
-      {/* ── Mobile Sidebar Overlay ─────────────────────────────────── */}
       {sidebarOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-40 bg-[#20251F]/40 backdrop-blur-xs lg:hidden"
             onClick={() => setSidebarOpen(false)}
             aria-hidden="true"
           />
-          <div className="fixed inset-y-0 left-0 z-50 flex flex-col lg:hidden w-64">
+          <div className="fixed inset-y-0 left-0 z-50 flex flex-col lg:hidden w-64 shadow-xl">
             <Sidebar
               activeSection={activeSection}
               setActiveSection={setActiveSection}
@@ -451,75 +392,66 @@ export default function AdminDashboardPage() {
         </>
       )}
 
-      {/* ── Main Content Area ───────────────────────────────────────── */}
       <div className="flex-1 lg:ml-64 flex flex-col min-h-screen">
-        {/* Top Header Bar */}
-        <header className="sticky top-0 z-20 bg-[#171A19]/95 backdrop-blur-md border-b border-[#38443C] px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-          {/* Mobile menu button */}
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open sidebar menu"
-            className="lg:hidden p-2 rounded-lg text-[#A8B3AA] hover:text-[#F5F5F0] hover:bg-[#222825] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]"
-          >
-            <MenuIcon className="w-5 h-5" />
-          </button>
-
-          <div className="flex-1">
-            <h1 className="text-base font-bold text-[#F5F5F0]">
+        <header className="sticky top-0 z-20 bg-white border-b border-[#E6E8E1] px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar menu"
+              className="lg:hidden p-1.5 rounded-md text-[#74796F] hover:text-[#20251F] hover:bg-[#EFF1EA] cursor-pointer"
+            >
+              <MenuIcon className="w-5 h-5" />
+            </button>
+            <h1 className="text-base font-bold text-[#20251F]">
               {NAV_LINKS.find((l) => l.id === activeSection)?.label || 'Dashboard'}
             </h1>
           </div>
 
-          {/* Action buttons in header */}
           <div className="flex items-center gap-2.5">
-            {/* Refresh Data button */}
             <button
               type="button"
               onClick={refreshAll}
               disabled={isRefreshing}
-              title="Refresh all data from server"
-              className="p-2 rounded-xl text-[#A8B3AA] hover:text-[#F5F5F0] bg-[#222825] border border-[#38443C] hover:border-[#82B895]/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895] disabled:opacity-50"
+              title="Refresh all data"
+              className="p-2 rounded-md text-[#74796F] hover:text-[#20251F] bg-[#FAFBF8] border border-[#E6E8E1] hover:bg-[#EFF1EA] transition-colors cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-[#82B895]' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#526B50]' : ''}`} />
             </button>
 
-            {/* Add Item shortcut in top bar */}
             <button
               type="button"
               onClick={openAdd}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] border border-[#326B4B] transition-colors cursor-pointer shadow-sm focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold bg-[#526B50] hover:bg-[#40563F] text-white transition-colors cursor-pointer shadow-xs"
             >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Add Food Item</span>
-              <span className="sm:hidden">Add</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Dish</span>
             </button>
           </div>
         </header>
 
-        {/* Global Toast Feedback */}
         {feedback && (
           <div className="px-4 sm:px-6 pt-4">
             <div
               role="status"
-              className={`flex items-center justify-between p-3.5 rounded-xl border text-xs font-medium ${
+              className={`flex items-center justify-between p-3 rounded-md border text-xs font-medium ${
                 feedback.type === 'success'
-                  ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-300'
-                  : 'bg-rose-950/40 border-rose-700/60 text-rose-300'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
               }`}
             >
               <div className="flex items-center gap-2">
                 {feedback.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 ) : (
-                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                 )}
                 <span>{feedback.text}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setFeedback(null)}
-                className="text-[#A8B3AA] hover:text-[#F5F5F0] p-1 cursor-pointer"
+                className="text-[#74796F] hover:text-[#20251F] p-0.5 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -527,7 +459,6 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* Page body */}
         <main className="flex-1 px-4 sm:px-6 py-6 max-w-7xl w-full mx-auto">
           {activeSection === 'overview' && (
             <OverviewSection
@@ -563,22 +494,17 @@ export default function AdminDashboardPage() {
             />
           )}
 
-          {/* ── Table QR Codes section ── */}
           {activeSection === 'tables' && (
             <TableQRSection />
           )}
         </main>
 
-        {/* Footer */}
-        <footer className="border-t border-[#38443C] bg-[#222825] py-4 px-6 text-xs text-[#A8B3AA] flex items-center justify-between">
-          <span>
-            <span className="font-semibold text-[#F5F5F0]">ServeSync</span> · Admin Dashboard · Member 3
-          </span>
-          <span className="text-[#82B895]">Backend Connected</span>
+        <footer className="border-t border-[#E6E8E1] bg-white py-4 px-6 text-xs text-[#74796F] flex items-center justify-between">
+          <span>Dinning Room · Admin Dashboard</span>
+          <span>Live Kitchen Sync</span>
         </footer>
       </div>
 
-      {/* ── Food Form Modal ───────────────────────────────────────── */}
       {formMode && (
         <FoodForm
           key={editTarget?._id || editTarget?.id || formMode}
@@ -586,7 +512,7 @@ export default function AdminDashboardPage() {
           onSave={formMode === 'edit' ? handleEdit : handleAdd}
           onCancel={closeForm}
           isModal={true}
-          title={formMode === 'edit' ? `Edit: ${editTarget?.name}` : 'Add New Food Item'}
+          title={formMode === 'edit' ? `Edit Dish: ${editTarget?.name}` : 'Add New Food Item'}
           serverError={formError}
         />
       )}
@@ -594,7 +520,6 @@ export default function AdminDashboardPage() {
   );
 }
 
-/* ─── Overview Section ────────────────────────────────────────────────── */
 function OverviewSection({
   stats,
   loadingStats,
@@ -605,28 +530,19 @@ function OverviewSection({
 }) {
   const foodCards = [
     {
-      label: 'Total Food Items',
+      label: 'Total Dishes',
       value: stats.totalFoodItems ?? stats.totalFoods ?? 0,
       icon: UtensilsCrossed,
-      color: 'text-[#E5B86A]',
-      bg: 'bg-[#E5B86A]/10',
-      border: 'border-[#E5B86A]/20',
     },
     {
-      label: 'Available Foods',
+      label: 'Available on Menu',
       value: stats.availableFoods ?? 0,
       icon: CheckCircle2,
-      color: 'text-[#82B895]',
-      bg: 'bg-[#82B895]/10',
-      border: 'border-[#82B895]/20',
     },
     {
-      label: 'Unavailable Foods',
+      label: 'Hidden / Sold Out',
       value: stats.unavailableFoods ?? 0,
       icon: XCircle,
-      color: 'text-rose-400',
-      bg: 'bg-rose-400/10',
-      border: 'border-rose-400/20',
     },
   ];
 
@@ -635,150 +551,124 @@ function OverviewSection({
       label: 'Total Orders',
       value: stats.totalOrders ?? 0,
       icon: ClipboardList,
-      color: 'text-[#E5B86A]',
-      bg: 'bg-[#E5B86A]/10',
-      border: 'border-[#E5B86A]/20',
     },
     {
-      label: 'Pending Orders',
+      label: 'Pending',
       value: stats.pendingOrders ?? 0,
       icon: Flame,
-      color: 'text-amber-400',
-      bg: 'bg-amber-400/10',
-      border: 'border-amber-400/20',
     },
     {
-      label: 'Preparing Orders',
+      label: 'Preparing',
       value: stats.preparingOrders ?? 0,
       icon: Bell,
-      color: 'text-blue-400',
-      bg: 'bg-blue-400/10',
-      border: 'border-blue-400/20',
     },
     {
-      label: 'Ready Orders',
+      label: 'Ready for Service',
       value: stats.readyOrders ?? 0,
       icon: CheckCircle2,
-      color: 'text-[#82B895]',
-      bg: 'bg-[#82B895]/10',
-      border: 'border-[#82B895]/20',
     },
     {
-      label: 'Completed Orders',
+      label: 'Served & Closed',
       value: stats.completedOrders ?? stats.servedOrders ?? 0,
       icon: CheckCheck,
-      color: 'text-slate-400',
-      bg: 'bg-slate-400/10',
-      border: 'border-slate-400/20',
     },
   ];
 
   return (
-    <div>
-      {/* Section heading */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-[#F5F5F0] mb-1">Dashboard Overview</h2>
-          <p className="text-sm text-[#A8B3AA]">
-            Real-time restaurant metrics live from MongoDB via GET /api/admin/dashboard.
+          <h2 className="text-xl font-bold text-[#20251F]">Restaurant Overview</h2>
+          <p className="text-xs text-[#74796F] mt-0.5">
+            Real-time metrics from live tabletop ordering.
           </p>
         </div>
-        {loadingStats && (
-          <span className="flex items-center gap-2 text-xs text-[#82B895]">
-            <span className="w-3.5 h-3.5 border-2 border-[#82B895] border-t-transparent rounded-full animate-spin" />
-            Loading statistics…
-          </span>
-        )}
       </div>
 
-      {/* Error state */}
       {statsError && (
-        <div className="mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-700/60 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
-            <p className="text-sm text-rose-300">{statsError}</p>
+        <div className="p-3.5 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-rose-700">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <p>{statsError}</p>
           </div>
           <button
             type="button"
             onClick={onRetryStats}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-900/60 hover:bg-rose-800 text-rose-100 border border-rose-600 cursor-pointer"
+            className="px-2.5 py-1 rounded-md text-xs font-semibold bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"
           >
             Retry
           </button>
         </div>
       )}
 
-      {/* ── Food Stats Cards ─── */}
-      <div className="mb-4">
-        <h3 className="text-xs font-bold text-[#A8B3AA] uppercase tracking-widest mb-3 flex items-center gap-2">
-          <UtensilsCrossed className="w-3.5 h-3.5 text-[#E5B86A]" />
-          Food Items Summary
+      <div>
+        <h3 className="text-xs font-bold text-[#74796F] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+          <UtensilsCrossed className="w-3.5 h-3.5 text-[#526B50]" />
+          Menu Status
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          {foodCards.map(({ label, value, icon: Icon, color, bg, border }) => (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          {foodCards.map(({ label, value, icon: Icon }) => (
             <div
               key={label}
-              className={`bg-[#222825] border ${border} rounded-2xl p-5 flex flex-col gap-3 hover:scale-[1.01] transition-transform duration-200`}
+              className="bg-white border border-[#E6E8E1] rounded-xl p-4 flex items-center gap-3.5 shadow-xs"
             >
-              <div className={`w-10 h-10 rounded-xl ${bg} border ${border} flex items-center justify-center`}>
-                <Icon className={`w-5 h-5 ${color}`} />
+              <div className="w-10 h-10 rounded-lg bg-[#EFF1EA] text-[#526B50] flex items-center justify-center shrink-0">
+                <Icon className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">
+                <p className="text-2xl font-bold text-[#20251F] leading-tight">
                   {loadingStats ? '—' : value}
                 </p>
-                <p className="text-xs text-[#A8B3AA] font-medium mt-0.5">{label}</p>
+                <p className="text-xs text-[#74796F] mt-0.5">{label}</p>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── Order Stats Cards ─── */}
-      <div className="mb-8">
-        <h3 className="text-xs font-bold text-[#A8B3AA] uppercase tracking-widest mb-3 flex items-center gap-2">
-          <ClipboardList className="w-3.5 h-3.5 text-[#82B895]" />
-          Order Status Summary
+      <div>
+        <h3 className="text-xs font-bold text-[#74796F] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+          <ClipboardList className="w-3.5 h-3.5 text-[#526B50]" />
+          Order Pipeline
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {orderCards.map(({ label, value, icon: Icon, color, bg, border }) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+          {orderCards.map(({ label, value, icon: Icon }) => (
             <div
               key={label}
-              className={`bg-[#222825] border ${border} rounded-2xl p-5 flex flex-col gap-3 hover:scale-[1.01] transition-transform duration-200`}
+              className="bg-white border border-[#E6E8E1] rounded-xl p-4 flex flex-col gap-2 shadow-xs"
             >
-              <div className={`w-10 h-10 rounded-xl ${bg} border ${border} flex items-center justify-center`}>
-                <Icon className={`w-5 h-5 ${color}`} />
+              <div className="w-8 h-8 rounded-md bg-[#EFF1EA] text-[#526B50] flex items-center justify-center">
+                <Icon className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">
+                <p className="text-xl font-bold text-[#20251F] leading-tight">
                   {loadingStats ? '—' : value}
                 </p>
-                <p className="text-xs text-[#A8B3AA] font-medium mt-0.5">{label}</p>
+                <p className="text-[11px] text-[#74796F] font-medium mt-0.5">{label}</p>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Quick Navigation Cards */}
-      <div className="bg-[#222825] border border-[#38443C] rounded-2xl p-6">
-        <h3 className="text-base font-bold text-[#F5F5F0] mb-4">Quick Navigation</h3>
-        <div className="flex flex-wrap gap-3">
+      <div className="bg-white border border-[#E6E8E1] rounded-xl p-5 shadow-xs">
+        <h3 className="text-sm font-bold text-[#20251F] mb-3">Quick Navigation</h3>
+        <div className="flex flex-wrap gap-2.5">
           <button
             type="button"
             onClick={onNavigateToMenu}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] border border-[#326B4B] transition-colors cursor-pointer shadow-md focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-semibold bg-[#526B50] hover:bg-[#40563F] text-white transition-colors cursor-pointer shadow-xs"
           >
-            <UtensilsCrossed className="w-4 h-4" />
-            Manage Menu
+            <UtensilsCrossed className="w-3.5 h-3.5" />
+            Manage Menu Dishes
           </button>
           <button
             type="button"
             onClick={onNavigateToOrders}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-[#222825] hover:bg-[#2A332E] text-[#F5F5F0] border border-[#38443C] hover:border-[#82B895]/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-semibold bg-white border border-[#E6E8E1] hover:bg-[#EFF1EA] text-[#20251F] transition-colors cursor-pointer"
           >
-            <ClipboardList className="w-4 h-4 text-[#82B895]" />
-            View Orders
+            <ClipboardList className="w-3.5 h-3.5 text-[#526B50]" />
+            View Active Orders
           </button>
         </div>
       </div>
@@ -786,7 +676,6 @@ function OverviewSection({
   );
 }
 
-/* ─── Menu Management Section ─────────────────────────────────────────── */
 function MenuSection({
   items,
   loadingFoods,
@@ -798,43 +687,40 @@ function MenuSection({
   onToggleAvail,
 }) {
   return (
-    <div>
-      {/* Section heading */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-[#F5F5F0] mb-1">Menu Management</h2>
-          <p className="text-sm text-[#A8B3AA]">
-            Add, update, remove, or toggle availability of dishes stored in the database.
+          <h2 className="text-xl font-bold text-[#20251F]">Menu Management</h2>
+          <p className="text-xs text-[#74796F] mt-0.5">
+            Configure dishes, categories, pricing, and availability.
           </p>
         </div>
         <button
           type="button"
           onClick={onAdd}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-[#24543A] hover:bg-[#326B4B] active:scale-[0.98] text-[#F5F0E6] border border-[#326B4B] transition-all duration-150 cursor-pointer shadow-md hover:shadow-lg shadow-[#24543A]/20 focus:outline-none focus:ring-2 focus:ring-[#82B895] shrink-0"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold bg-[#526B50] hover:bg-[#40563F] text-white transition-colors cursor-pointer shadow-xs shrink-0"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-3.5 h-3.5" />
           Add Food Item
         </button>
       </div>
 
-      {/* Foods Error Alert */}
       {foodsError && (
-        <div className="mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-700/60 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
-            <p className="text-sm text-rose-300">{foodsError}</p>
+        <div className="p-3.5 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-rose-700">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <p>{foodsError}</p>
           </div>
           <button
             type="button"
             onClick={onRetryFoods}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-900/60 hover:bg-rose-800 text-rose-100 border border-rose-600 cursor-pointer"
+            className="px-2.5 py-1 rounded-md text-xs font-semibold bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"
           >
             Retry
           </button>
         </div>
       )}
 
-      {/* Food Table */}
       <FoodTable
         items={items}
         onEdit={onEdit}
@@ -846,14 +732,12 @@ function MenuSection({
   );
 }
 
-/* ─── Orders Overview Section (Member 3 Task 4) ───────────────────────── */
 function OrdersSection({ orders, loadingOrders, ordersError, onRetryOrders, onGoToKitchen }) {
   const [statusFilter, setStatusFilter] = useState('All');
   const [search, setSearch] = useState('');
 
-  // Format order timestamp
   function formatTime(timestamp) {
-    if (!timestamp) return 'N/A';
+    if (!timestamp) return '—';
     try {
       const date = new Date(timestamp);
       if (isNaN(date.getTime())) return String(timestamp);
@@ -868,7 +752,6 @@ function OrdersSection({ orders, loadingOrders, ordersError, onRetryOrders, onGo
     }
   }
 
-  // Filter orders
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const q = search.trim().toLowerCase();
@@ -899,69 +782,63 @@ function OrdersSection({ orders, loadingOrders, ordersError, onRetryOrders, onGo
   const STATUS_TABS = ['All', 'Pending', 'Preparing', 'Ready', 'Served'];
 
   return (
-    <div>
-      {/* Section Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-[#F5F5F0] mb-1">Orders Overview</h2>
-          <p className="text-sm text-[#A8B3AA]">
-            Monitor all customer orders placed across tables via GET /api/admin/orders.
+          <h2 className="text-xl font-bold text-[#20251F]">Orders Overview</h2>
+          <p className="text-xs text-[#74796F] mt-0.5">
+            Monitor orders placed across all tables.
           </p>
         </div>
         <button
           type="button"
           onClick={onGoToKitchen}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-[#222825] hover:bg-[#2A332E] text-[#82B895] border border-[#38443C] hover:border-[#82B895]/50 transition-colors cursor-pointer shrink-0"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-white border border-[#E6E8E1] hover:bg-[#EFF1EA] text-[#20251F] transition-colors cursor-pointer shrink-0"
         >
-          <ChefHat className="w-4 h-4" />
+          <ChefHat className="w-3.5 h-3.5 text-[#526B50]" />
           <span>Open Kitchen Display</span>
-          <ExternalLink className="w-3.5 h-3.5" />
+          <ExternalLink className="w-3 h-3 text-[#74796F]" />
         </button>
       </div>
 
-      {/* Orders Error Alert */}
       {ordersError && (
-        <div className="mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-700/60 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
-            <p className="text-sm text-rose-300">{ordersError}</p>
+        <div className="p-3.5 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-rose-700">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <p>{ordersError}</p>
           </div>
           <button
             type="button"
             onClick={onRetryOrders}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-900/60 hover:bg-rose-800 text-rose-100 border border-rose-600 cursor-pointer"
+            className="px-2.5 py-1 rounded-md text-xs font-semibold bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"
           >
             Retry
           </button>
         </div>
       )}
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
-        {/* Search */}
+      <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 min-w-0">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A8B3AA]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#74796F]" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by order ID, table number, or dish…"
             aria-label="Search orders"
-            className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-[#171A19] border border-[#38443C] text-sm text-[#F5F5F0] placeholder-[#A8B3AA] focus:outline-none focus:border-[#82B895] focus:ring-2 focus:ring-[#82B895]/30 transition-colors"
+            className="w-full pl-9 pr-8 py-2 rounded-md bg-white border border-[#E6E8E1] text-xs text-[#20251F] placeholder:text-[#74796F] focus:outline-none focus:border-[#526B50] focus:ring-2 focus:ring-[#526B50]/20"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch('')}
-              aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#A8B3AA] hover:text-[#F5F5F0] p-0.5 cursor-pointer"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#74796F] hover:text-[#20251F] p-0.5"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
 
-        {/* Status Filter Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
           {STATUS_TABS.map((tab) => {
             const isActive = statusFilter.toLowerCase() === tab.toLowerCase();
@@ -971,11 +848,11 @@ function OrdersSection({ orders, loadingOrders, ordersError, onRetryOrders, onGo
                 type="button"
                 onClick={() => setStatusFilter(tab)}
                 className={`
-                  px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer
+                  px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer
                   ${
                     isActive
-                      ? 'bg-[#24543A] text-[#F5F0E6] border border-[#326B4B]'
-                      : 'bg-[#171A19] text-[#A8B3AA] border border-[#38443C] hover:text-[#F5F5F0]'
+                      ? 'bg-[#526B50] text-white shadow-xs'
+                      : 'bg-white text-[#74796F] border border-[#E6E8E1] hover:bg-[#EFF1EA]'
                   }
                 `}
               >
@@ -986,49 +863,27 @@ function OrdersSection({ orders, loadingOrders, ordersError, onRetryOrders, onGo
         </div>
       </div>
 
-      {/* Results Count & Loading */}
-      <div className="flex items-center justify-between mb-4 text-xs text-[#A8B3AA]">
+      <div className="flex items-center justify-between text-xs text-[#74796F]">
         <p>
-          Showing <span className="font-bold text-[#F5F5F0]">{filteredOrders.length}</span> of{' '}
-          <span className="font-bold text-[#F5F5F0]">{orders.length}</span> orders
+          Showing <span className="font-bold text-[#20251F]">{filteredOrders.length}</span> of{' '}
+          <span className="font-bold text-[#20251F]">{orders.length}</span> orders
         </p>
-        {loadingOrders && (
-          <span className="flex items-center gap-1.5 text-[#82B895]">
-            <span className="w-3 h-3 border-2 border-[#82B895] border-t-transparent rounded-full animate-spin" />
-            Loading orders…
-          </span>
-        )}
       </div>
 
-      {/* Orders List / Empty State */}
       {filteredOrders.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-xl bg-[#222825] border border-[#38443C] border-dashed">
-          <div className="w-14 h-14 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center mb-4">
-            <ClipboardList className="w-7 h-7 text-[#A8B3AA] opacity-50" />
-          </div>
-          <h3 className="text-lg font-bold text-[#F5F5F0] mb-2">
-            {search || statusFilter !== 'All' ? 'No orders match your filter' : 'No orders recorded yet'}
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-xl bg-white border border-[#E6E8E1] border-dashed">
+          <ClipboardList className="w-8 h-8 text-[#74796F] opacity-40 mb-3" />
+          <h3 className="text-sm font-bold text-[#20251F] mb-1">
+            {search || statusFilter !== 'All' ? 'No matching orders' : 'No orders yet'}
           </h3>
-          <p className="text-sm text-[#A8B3AA] max-w-sm mb-4">
+          <p className="text-xs text-[#74796F] max-w-xs">
             {search || statusFilter !== 'All'
-              ? 'Try clearing the search or status filter to see all orders.'
-              : 'When customers place orders from the table menu, they will appear here in real time.'}
+              ? 'Try clearing your filters.'
+              : 'Orders placed by table customers will appear here.'}
           </p>
-          {(search || statusFilter !== 'All') && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearch('');
-                setStatusFilter('All');
-              }}
-              className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#24543A] text-[#F5F0E6] hover:bg-[#326B4B] cursor-pointer"
-            >
-              Reset Filters
-            </button>
-          )}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {filteredOrders.map((order) => {
             const orderId = order._id ? String(order._id) : String(order.id);
             const shortId = orderId.length > 8 ? orderId.slice(-6).toUpperCase() : orderId;
@@ -1036,77 +891,73 @@ function OrdersSection({ orders, loadingOrders, ordersError, onRetryOrders, onGo
             const total = order.totalAmount ?? order.total ?? 0;
             const status = order.status || 'Pending';
 
+            const statusCls = {
+              pending: 'bg-amber-50 text-amber-800 border-amber-200',
+              preparing: 'bg-blue-50 text-blue-800 border-blue-200',
+              ready: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+              served: 'bg-[#EFF1EA] text-[#74796F] border-[#E6E8E1]',
+              completed: 'bg-[#EFF1EA] text-[#74796F] border-[#E6E8E1]',
+            }[status.toLowerCase()] || 'bg-gray-50 text-gray-700 border-gray-200';
+
             return (
               <div
                 key={orderId}
-                className="bg-[#222825] border border-[#38443C] rounded-2xl p-5 hover:border-[#82B895]/40 transition-colors shadow-md"
+                className="bg-white border border-[#E6E8E1] rounded-xl p-4 hover:border-[#CBD0C5] transition-colors shadow-xs space-y-3"
               >
-                {/* Order Top Meta */}
-                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#38443C]/60 mb-3">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-base sm:text-lg font-black text-[#F5F5F0]">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-2.5 border-b border-[#E6E8E1]">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-bold text-[#20251F]">
                       #{shortId}
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-lg bg-[#171A19] border border-[#38443C] text-xs font-bold text-[#E5B86A]">
-                      Table {order.tableNumber != null ? order.tableNumber : 'N/A'}
+                    <span className="px-2 py-0.5 rounded-md bg-[#EFF1EA] text-xs font-semibold text-[#20251F]">
+                      Table #{order.tableNumber != null ? order.tableNumber : 'N/A'}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    {/* Timestamp */}
-                    <div className="flex items-center gap-1.5 text-xs text-[#A8B3AA]">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>{formatTime(order.createdAt)}</span>
-                    </div>
-
-                    {/* Status Badge */}
-                    <OrderStatusBadge status={status} />
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xs text-[#74796F] flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {formatTime(order.createdAt)}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${statusCls}`}>
+                      {status}
+                    </span>
                   </div>
                 </div>
 
-                {/* Ordered Items List */}
-                <div className="mb-4">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#A8B3AA] mb-2">
-                    Ordered Items ({items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)})
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {items.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between px-3 py-2 rounded-xl bg-[#171A19] border border-[#38443C]/60 text-xs"
-                      >
-                        <span className="font-medium text-[#F5F5F0] truncate mr-2">
-                          <span className="font-bold text-[#E5B86A] mr-1.5">{item.quantity}×</span>
-                          {item.name || 'Unnamed Dish'}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between px-2.5 py-1.5 rounded-md bg-[#FAFBF8] border border-[#E6E8E1] text-xs"
+                    >
+                      <span className="font-medium text-[#20251F] truncate mr-2">
+                        <span className="font-bold text-[#526B50] mr-1">{item.quantity}×</span>
+                        {item.name || 'Dish'}
+                      </span>
+                      {item.price != null && (
+                        <span className="text-[#74796F] shrink-0">
+                          ₹{Number(item.price) * (Number(item.quantity) || 1)}
                         </span>
-                        {item.price != null && (
-                          <span className="text-[#A8B3AA] shrink-0 font-medium">
-                            ₹{Number(item.price) * (Number(item.quantity) || 1)}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
 
-                {/* Special instructions if any */}
                 {order.specialInstructions && (
-                  <p className="text-xs text-amber-200/90 bg-amber-950/30 border border-amber-600/30 px-3 py-1.5 rounded-lg mb-3">
-                    <span className="font-semibold text-amber-400">Note: </span>
-                    "{order.specialInstructions}"
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 p-2 rounded-md">
+                    <span className="font-semibold">Note: </span>
+                    &quot;{order.specialInstructions}&quot;
                   </p>
                 )}
 
-                {/* Footer Total */}
-                <div className="flex items-center justify-between pt-2 border-t border-[#38443C]/40 text-xs">
-                  <span className="text-[#A8B3AA] font-medium">
-                    Order ID: <span className="font-mono text-[#F5F5F0]">{orderId}</span>
+                <div className="flex items-center justify-between pt-2 border-t border-[#E6E8E1] text-xs">
+                  <span className="text-[#74796F]">
+                    ID: <span className="font-mono">{orderId}</span>
                   </span>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-[11px] uppercase tracking-wider text-[#A8B3AA] font-bold">
-                      Total:
-                    </span>
-                    <span className="text-base font-black text-[#E5B86A]">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-[#74796F]">Total:</span>
+                    <span className="text-sm font-bold text-[#526B50]">
                       ₹{total}
                     </span>
                   </div>
@@ -1117,33 +968,5 @@ function OrdersSection({ orders, loadingOrders, ordersError, onRetryOrders, onGo
         </div>
       )}
     </div>
-  );
-}
-
-/* Status Badge Helper */
-function OrderStatusBadge({ status }) {
-  const norm = status ? status.toLowerCase() : 'pending';
-
-  let badgeCls = 'bg-amber-950/40 border-amber-600/60 text-amber-300';
-  let label = status;
-
-  if (norm === 'pending') {
-    badgeCls = 'bg-amber-950/40 border-amber-600/60 text-amber-300';
-    label = 'Pending';
-  } else if (norm === 'preparing') {
-    badgeCls = 'bg-blue-950/40 border-blue-600/60 text-blue-300';
-    label = 'Preparing';
-  } else if (norm === 'ready') {
-    badgeCls = 'bg-emerald-950/40 border-emerald-600/60 text-emerald-300';
-    label = 'Ready for Pickup';
-  } else if (norm === 'served' || norm === 'completed') {
-    badgeCls = 'bg-slate-900 border-slate-700 text-slate-300';
-    label = 'Completed';
-  }
-
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${badgeCls}`}>
-      {label}
-    </span>
   );
 }

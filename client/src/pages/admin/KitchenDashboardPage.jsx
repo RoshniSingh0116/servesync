@@ -13,64 +13,39 @@ import {
   Columns,
   Utensils,
   X,
-  Filter,
-  Check,
   ArrowLeft,
   Shield,
   AlertCircle,
   Loader2,
+  Check,
 } from 'lucide-react';
 import OrderCard from '../../components/admin/OrderCard';
-import {
-  STATUS_BADGE_STYLES,
-  STATUS_TRANSITIONS,
-} from '../../mocks/mockOrders';
+import { STATUS_TRANSITIONS } from '../../mocks/mockOrders';
 import {
   fetchAllKitchenOrders,
   patchKitchenOrderStatus,
 } from '../../api/kitchenApi';
 
-/**
- * KitchenDashboardPage Component
- *
- * Professional Kitchen Display System (KDS) for ServeSync (Member 4).
- * Fetches real orders from the backend Kitchen API and allows kitchen staff
- * to advance order status through the lifecycle:
- *   Pending → Preparing → Ready → Served
- *
- * API endpoints consumed:
- *   GET   /api/kitchen/orders               — all orders, newest first
- *   GET   /api/kitchen/orders/status/:status — filter by status
- *   PATCH /api/kitchen/orders/:id/status    — update order status
- */
 export default function KitchenDashboardPage() {
   const navigate = useNavigate();
 
-  /* ── 1. Orders state from backend ─────────────────────────────────────── */
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
-
-  /* ── 2. Per-order update state (tracks which order is being patched) ──── */
-  // Map of orderId → true while PATCH request is in-flight
   const [updatingOrders, setUpdatingOrders] = useState({});
 
-  /* ── 3. Filter & View controls ────────────────────────────────────────── */
-  // 'All' | 'Pending' | 'Preparing' | 'Ready' | 'Served'
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'columns'
-  const [sortOrder, setSortOrder] = useState('lifo'); // 'lifo' (newest first) | 'fifo' (oldest first)
+  const [viewMode, setViewMode] = useState('grid');
+  const [sortOrder, setSortOrder] = useState('lifo');
 
-  /* ── 4. Live Clock ────────────────────────────────────────────────────── */
   const [currentTime, setCurrentTime] = useState(() => new Date());
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  /* ── 5. Toast feedback ────────────────────────────────────────────────── */
-  const [toast, setToast] = useState(null); // { message, type: 'success'|'error'|'info' }
+  const [toast, setToast] = useState(null);
 
   const showToast = useCallback((message, type = 'info') => {
     setToast({ message, type });
@@ -78,7 +53,6 @@ export default function KitchenDashboardPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  /* ── 6. Fetch orders from backend ─────────────────────────────────────── */
   const loadOrders = useCallback(async () => {
     setIsLoading(true);
     setFetchError(null);
@@ -89,19 +63,17 @@ export default function KitchenDashboardPage() {
       const message =
         err?.response?.data?.error ||
         err?.message ||
-        'Failed to load orders. Please check your connection and try again.';
+        'Failed to load orders. Please check your connection.';
       setFetchError(message);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // Initial fetch on mount
   useEffect(() => {
     loadOrders();
   }, [loadOrders]);
 
-  /* ── 7. Dynamic order counts ──────────────────────────────────────────── */
   const orderCounts = useMemo(() => {
     const counts = {
       total: orders.length,
@@ -114,20 +86,14 @@ export default function KitchenDashboardPage() {
     return counts;
   }, [orders]);
 
-  /* ── 8. Status transition handler (calls real PATCH API) ─────────────── */
   const handleStatusChange = useCallback(async (orderId, nextStatus) => {
-    // Guard: prevent double-submission if this order is already updating
     if (updatingOrders[orderId]) return;
 
-    // Guard: validate the transition matches the strict forward-only flow
     const targetOrder = orders.find((o) => String(o.id) === String(orderId));
     if (!targetOrder) return;
 
     const expectedNext = STATUS_TRANSITIONS[targetOrder.status];
     if (expectedNext !== nextStatus) {
-      console.warn(
-        `[ServeSync KDS] Blocked invalid transition: ${targetOrder.status} → ${nextStatus}`
-      );
       showToast(
         `Invalid status transition: ${targetOrder.status} → ${nextStatus}`,
         'error'
@@ -135,31 +101,26 @@ export default function KitchenDashboardPage() {
       return;
     }
 
-    // Mark this order as updating (disables its button)
     setUpdatingOrders((prev) => ({ ...prev, [orderId]: true }));
 
     try {
       const updatedOrder = await patchKitchenOrderStatus(String(orderId), nextStatus);
 
-      // Merge the updated order back into local state without a full refetch
       setOrders((prev) =>
         prev.map((o) => (String(o.id) === String(orderId) ? updatedOrder : o))
       );
 
       showToast(
-        `Order #${typeof orderId === 'string' && orderId.length > 10 ? orderId.slice(-6) : orderId} (Table ${targetOrder.tableNumber}) → ${nextStatus}`,
+        `Order #${typeof orderId === 'string' && orderId.length > 10 ? orderId.slice(-6) : orderId} (Table #${targetOrder.tableNumber}) → ${nextStatus}`,
         'success'
       );
     } catch (err) {
-      // Surface backend validation messages (transition errors, terminal order, etc.)
       const backendMessage =
         err?.response?.data?.error ||
         err?.message ||
         'Failed to update order status. Please try again.';
       showToast(backendMessage, 'error');
-      console.error('[KitchenDashboard] Status update failed:', backendMessage);
     } finally {
-      // Always clear the updating lock
       setUpdatingOrders((prev) => {
         const next = { ...prev };
         delete next[orderId];
@@ -168,16 +129,13 @@ export default function KitchenDashboardPage() {
     }
   }, [orders, updatingOrders, showToast]);
 
-  /* ── 9. Filter and sort orders (client-side, applied after fetch) ──────── */
   const filteredOrders = useMemo(() => {
     let result = [...orders];
 
-    // Status filter
     if (selectedStatusFilter !== 'All') {
       result = result.filter((o) => o.status === selectedStatusFilter);
     }
 
-    // Search query filter (matches short ID suffix, table #, or dish name)
     const query = searchQuery.trim().toLowerCase();
     if (query) {
       result = result.filter((order) => {
@@ -197,7 +155,6 @@ export default function KitchenDashboardPage() {
       });
     }
 
-    // Sort
     result.sort((a, b) => {
       const timeA = new Date(a.createdAt || 0).getTime();
       const timeB = new Date(b.createdAt || 0).getTime();
@@ -207,7 +164,6 @@ export default function KitchenDashboardPage() {
     return result;
   }, [orders, selectedStatusFilter, searchQuery, sortOrder]);
 
-  // Grouped orders for Kanban / Column view (always uses all orders, not filtered)
   const columnsData = useMemo(() => {
     const base = searchQuery ? filteredOrders : orders;
     return {
@@ -218,99 +174,68 @@ export default function KitchenDashboardPage() {
     };
   }, [orders, filteredOrders, searchQuery]);
 
-  /* ── Render ───────────────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-[#171A19] text-[#F5F5F0] flex flex-col font-sans selection:bg-[#24543A] selection:text-[#F5F0E6]">
-
-      {/* ─────────────────────────────────────────────────────────────
-          A. KDS NAVIGATION / HEADER
-      ───────────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 bg-[#171A19]/95 backdrop-blur-md border-b border-[#38443C]">
+    <div className="min-h-screen bg-[#F7F7F4] text-[#20251F] flex flex-col font-sans">
+      <header className="sticky top-0 z-40 bg-white border-b border-[#E6E8E1]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 sm:h-20">
-            {/* Brand Logo & Station Title */}
+          <div className="flex items-center justify-between h-16 sm:h-18">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#24543A] to-[#171A19] border border-[#326B4B] flex items-center justify-center shadow-md">
-                <ChefHat className="w-5 h-5 text-[#E5B86A]" />
+              <div className="w-9 h-9 rounded-lg bg-[#526B50] text-white flex items-center justify-center shadow-xs">
+                <ChefHat className="w-5 h-5" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="text-xl sm:text-2xl font-black tracking-tight text-[#F5F5F0] leading-none">
-                    Serve<span className="text-[#E5B86A]">Sync</span>
+                  <h1 className="text-lg font-bold text-[#20251F] leading-none">
+                    Dinning Room
                   </h1>
-                  <span className="px-2 py-0.5 rounded-full bg-[#24543A]/40 border border-[#326B4B] text-[10px] font-bold text-[#82B895] uppercase tracking-wider">
+                  <span className="px-2 py-0.5 rounded-full bg-[#EFF1EA] border border-[#E6E8E1] text-[10px] font-semibold text-[#526B50] uppercase tracking-wider">
                     Kitchen KDS
                   </span>
                 </div>
-                <p className="text-[11px] text-[#A8B3AA] tracking-wide font-medium mt-0.5">
-                  Live Kitchen Order Display Station
+                <p className="text-[11px] text-[#74796F] font-medium mt-0.5">
+                  Live Ticket Display Station
                 </p>
               </div>
             </div>
 
-            {/* Live Clock & Controls */}
-            <div className="flex items-center gap-3">
-              {/* Live Clock */}
-              <div className="hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#222825] border border-[#38443C] text-xs">
-                <Clock className="w-4 h-4 text-[#82B895]" />
-                <span className="font-mono font-bold text-[#F5F5F0]">
+            <div className="flex items-center gap-2.5">
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#FAFBF8] border border-[#E6E8E1] text-xs">
+                <Clock className="w-3.5 h-3.5 text-[#526B50]" />
+                <span className="font-mono font-bold text-[#20251F]">
                   {currentTime.toLocaleTimeString([], {
                     hour: '2-digit',
                     minute: '2-digit',
                     second: '2-digit',
                   })}
                 </span>
-                <span className="text-[#A8B3AA] ml-1">Live Service</span>
               </div>
 
-              {/* Refresh Button */}
               <button
                 type="button"
                 onClick={loadOrders}
                 disabled={isLoading}
                 title="Refresh orders from server"
-                aria-label="Refresh kitchen orders"
-                className="
-                  inline-flex items-center gap-1.5 px-3 py-2 rounded-xl
-                  bg-[#222825] border border-[#38443C] hover:border-[#82B895]
-                  text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0]
-                  transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                "
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-[#E6E8E1] hover:bg-[#EFF1EA] text-xs font-semibold text-[#20251F] transition-colors cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className={`w-3.5 h-3.5 text-[#E5B86A] ${isLoading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 text-[#526B50] ${isLoading ? 'animate-spin' : ''}`} />
                 <span className="hidden sm:inline">Refresh</span>
               </button>
 
-              {/* View Customer Menu Link */}
               <button
                 type="button"
                 onClick={() => navigate('/menu')}
-                title="Switch to Customer Menu"
-                className="
-                  inline-flex items-center gap-1.5 px-3 py-2 rounded-xl
-                  bg-[#24543A] hover:bg-[#326B4B] border border-[#326B4B]
-                  text-xs font-semibold text-[#F5F0E6]
-                  transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                "
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-[#E6E8E1] hover:bg-[#EFF1EA] text-xs font-semibold text-[#74796F] hover:text-[#20251F] transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Customer Menu</span>
+                <span className="hidden sm:inline">Menu</span>
               </button>
 
-              {/* Switch to Admin Link */}
               <button
                 type="button"
                 onClick={() => navigate('/admin/dashboard')}
-                title="Switch to Admin Dashboard"
-                className="
-                  inline-flex items-center gap-1.5 px-3 py-2 rounded-xl
-                  bg-[#222825] border border-[#38443C] hover:border-[#82B895]
-                  text-xs font-semibold text-[#A8B3AA] hover:text-[#F5F5F0]
-                  transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                "
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#526B50] hover:bg-[#40563F] text-xs font-semibold text-white transition-colors cursor-pointer shadow-xs"
               >
-                <Shield className="w-3.5 h-3.5 text-[#82B895]" />
+                <Shield className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Admin</span>
               </button>
             </div>
@@ -318,536 +243,286 @@ export default function KitchenDashboardPage() {
         </div>
       </header>
 
-      {/* ─────────────────────────────────────────────────────────────
-          B. STATS OVERVIEW CARDS
-      ───────────────────────────────────────────────────────────── */}
-      <section className="bg-gradient-to-b from-[#222825] to-[#171A19] border-b border-[#38443C] py-6">
+      <section className="bg-white border-b border-[#E6E8E1] py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-
-            {/* Total Orders */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('All')}
-              className={`
-                p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
-                focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                ${selectedStatusFilter === 'All'
-                  ? 'bg-[#24543A]/30 border-[#82B895] shadow-md shadow-[#24543A]/20'
-                  : 'bg-[#222825] border-[#38443C] hover:border-[#82B895]/50'}
-              `}
+              className={`p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+                selectedStatusFilter === 'All'
+                  ? 'bg-[#EFF1EA] border-[#526B50]'
+                  : 'bg-[#FAFBF8] border-[#E6E8E1] hover:bg-[#EFF1EA]'
+              }`}
             >
-              <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
+              <div className="flex items-center justify-between text-xs text-[#74796F] mb-1 font-semibold">
                 <span>All Orders</span>
-                <Utensils className="w-4 h-4 text-[#82B895]" />
+                <Utensils className="w-3.5 h-3.5 text-[#526B50]" />
               </div>
-              <div className="text-2xl sm:text-3xl font-black text-[#F5F5F0]">
+              <div className="text-2xl font-bold text-[#20251F]">
                 {isLoading ? '—' : orderCounts.total}
               </div>
-              <span className="text-[11px] text-[#A8B3AA]">Today's queue</span>
+              <span className="text-[11px] text-[#74796F]">Total received</span>
             </button>
 
-            {/* Pending */}
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('Pending')}
-              className={`
-                p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
-                focus:outline-none focus:ring-2 focus:ring-[#E5B86A]
-                ${selectedStatusFilter === 'Pending'
-                  ? 'bg-amber-950/40 border-[#E5B86A] shadow-md shadow-amber-900/20'
-                  : 'bg-[#222825] border-[#38443C] hover:border-[#E5B86A]/50'}
-              `}
+              className={`p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+                selectedStatusFilter === 'Pending'
+                  ? 'bg-amber-50 border-amber-400'
+                  : 'bg-[#FAFBF8] border-[#E6E8E1] hover:bg-amber-50/50'
+              }`}
             >
-              <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
+              <div className="flex items-center justify-between text-xs text-amber-800 mb-1 font-semibold">
                 <span>Pending</span>
-                <Flame className="w-4 h-4 text-[#E5B86A]" />
+                <Flame className="w-3.5 h-3.5 text-amber-600" />
               </div>
-              <div className="text-2xl sm:text-3xl font-black text-[#E5B86A]">
+              <div className="text-2xl font-bold text-amber-900">
                 {isLoading ? '—' : orderCounts.pending}
               </div>
-              <span className="text-[11px] text-[#A8B3AA]">Awaiting prep</span>
+              <span className="text-[11px] text-amber-700">Needs prep</span>
             </button>
 
-            {/* Preparing */}
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('Preparing')}
-              className={`
-                p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
-                focus:outline-none focus:ring-2 focus:ring-[#3B82F6]
-                ${selectedStatusFilter === 'Preparing'
-                  ? 'bg-blue-950/40 border-[#3B82F6] shadow-md shadow-blue-900/20'
-                  : 'bg-[#222825] border-[#38443C] hover:border-[#3B82F6]/50'}
-              `}
+              className={`p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+                selectedStatusFilter === 'Preparing'
+                  ? 'bg-blue-50 border-blue-400'
+                  : 'bg-[#FAFBF8] border-[#E6E8E1] hover:bg-blue-50/50'
+              }`}
             >
-              <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
+              <div className="flex items-center justify-between text-xs text-blue-800 mb-1 font-semibold">
                 <span>Preparing</span>
-                <Bell className="w-4 h-4 text-[#60A5FA]" />
+                <Bell className="w-3.5 h-3.5 text-blue-600" />
               </div>
-              <div className="text-2xl sm:text-3xl font-black text-[#93C5FD]">
+              <div className="text-2xl font-bold text-blue-900">
                 {isLoading ? '—' : orderCounts.preparing}
               </div>
-              <span className="text-[11px] text-[#A8B3AA]">On stove / in oven</span>
+              <span className="text-[11px] text-blue-700">On stove</span>
             </button>
 
-            {/* Ready */}
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('Ready')}
-              className={`
-                p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
-                focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                ${selectedStatusFilter === 'Ready'
-                  ? 'bg-[#24543A]/40 border-[#82B895] shadow-md shadow-[#24543A]/20'
-                  : 'bg-[#222825] border-[#38443C] hover:border-[#82B895]/50'}
-              `}
+              className={`p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+                selectedStatusFilter === 'Ready'
+                  ? 'bg-emerald-50 border-emerald-400'
+                  : 'bg-[#FAFBF8] border-[#E6E8E1] hover:bg-emerald-50/50'
+              }`}
             >
-              <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
-                <span>Ready for Pickup</span>
-                <CheckCircle2 className="w-4 h-4 text-[#82B895]" />
+              <div className="flex items-center justify-between text-xs text-emerald-800 mb-1 font-semibold">
+                <span>Ready</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
               </div>
-              <div className="text-2xl sm:text-3xl font-black text-[#82B895]">
+              <div className="text-2xl font-bold text-emerald-900">
                 {isLoading ? '—' : orderCounts.ready}
               </div>
-              <span className="text-[11px] text-[#A8B3AA]">Pass to runners</span>
+              <span className="text-[11px] text-emerald-700">Ready to serve</span>
             </button>
 
-            {/* Served */}
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('Served')}
-              className={`
-                p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer
-                col-span-2 sm:col-span-1 focus:outline-none focus:ring-2 focus:ring-[#A8B3AA]
-                ${selectedStatusFilter === 'Served'
-                  ? 'bg-[#222825] border-[#F5F5F0] shadow-md'
-                  : 'bg-[#222825] border-[#38443C] hover:border-[#A8B3AA]'}
-              `}
+              className={`p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+                selectedStatusFilter === 'Served'
+                  ? 'bg-[#EFF1EA] border-[#CBD0C5]'
+                  : 'bg-[#FAFBF8] border-[#E6E8E1] hover:bg-[#EFF1EA]'
+              }`}
             >
-              <div className="flex items-center justify-between text-xs text-[#A8B3AA] mb-1 font-semibold">
-                <span>Served Today</span>
-                <CheckCheck className="w-4 h-4 text-[#A8B3AA]" />
+              <div className="flex items-center justify-between text-xs text-[#74796F] mb-1 font-semibold">
+                <span>Served</span>
+                <CheckCheck className="w-3.5 h-3.5 text-[#74796F]" />
               </div>
-              <div className="text-2xl sm:text-3xl font-black text-[#A8B3AA]">
+              <div className="text-2xl font-bold text-[#20251F]">
                 {isLoading ? '—' : orderCounts.served}
               </div>
-              <span className="text-[11px] text-[#A8B3AA]">Delivered to tables</span>
+              <span className="text-[11px] text-[#74796F]">Completed</span>
             </button>
-
           </div>
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────────────────────
-          C. FILTER BAR & VIEW CONTROLS
-      ───────────────────────────────────────────────────────────── */}
-      <section className="sticky top-16 sm:top-20 z-30 bg-[#171A19]/95 backdrop-blur-md border-b border-[#38443C] py-3.5">
+      <section className="sticky top-16 sm:top-18 z-30 bg-[#F7F7F4]/95 backdrop-blur-md border-b border-[#E6E8E1] py-3">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
-          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-            {/* Status Filter Tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
-              {[
-                { id: 'All', label: 'All', count: orderCounts.total },
-                { id: 'Pending', label: 'Pending', count: orderCounts.pending },
-                { id: 'Preparing', label: 'Preparing', count: orderCounts.preparing },
-                { id: 'Ready', label: 'Ready', count: orderCounts.ready },
-                { id: 'Served', label: 'Served', count: orderCounts.served },
-              ].map((tab) => {
-                const isActive = selectedStatusFilter === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setSelectedStatusFilter(tab.id)}
-                    className={`
-                      inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold
-                      border transition-all duration-150 shrink-0 cursor-pointer
-                      focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                      ${isActive
-                        ? 'bg-[#24543A] text-[#F5F0E6] border-[#326B4B] shadow-sm'
-                        : 'bg-[#222825] text-[#A8B3AA] border-[#38443C] hover:text-[#F5F5F0] hover:border-[#82B895]/40'}
-                    `}
-                  >
-                    <span>{tab.label}</span>
-                    <span
-                      className={`
-                        inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded-full text-[10px] font-bold
-                        ${isActive
-                          ? 'bg-[#171A19] text-[#E5B86A]'
-                          : 'bg-[#171A19] text-[#A8B3AA]'}
-                      `}
-                    >
-                      {isLoading ? '…' : tab.count}
-                    </span>
-                  </button>
-                );
-              })}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#74796F]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search ticket #, table number, or dish…"
+                className="w-full pl-9 pr-8 py-2 rounded-md bg-white border border-[#E6E8E1] text-xs text-[#20251F] placeholder:text-[#74796F] focus:outline-none focus:border-[#526B50] focus:ring-2 focus:ring-[#526B50]/20"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#74796F] hover:text-[#20251F]"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
-            {/* Right Tools: Search, View Switch, Sort */}
-            <div className="flex items-center gap-2.5">
-              {/* Quick Search */}
-              <div className="relative flex-1 sm:w-60">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#A8B3AA]" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Order ID, Table, dish..."
-                  aria-label="Filter orders by order ID, table number, or food name"
-                  className="
-                    w-full pl-8 pr-8 py-1.5 rounded-xl bg-[#222825] border border-[#38443C]
-                    text-xs text-[#F5F5F0] placeholder-[#A8B3AA] transition-colors
-                    focus:outline-none focus:border-[#82B895] focus:ring-1 focus:ring-[#82B895]
-                  "
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    aria-label="Clear search query"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A8B3AA] hover:text-[#F5F5F0] cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* FIFO / LIFO Sort Toggle */}
-              <button
-                type="button"
-                onClick={() => setSortOrder((prev) => (prev === 'fifo' ? 'lifo' : 'fifo'))}
-                title={`Sort: ${sortOrder === 'fifo' ? 'Oldest First (FIFO)' : 'Newest First'}`}
-                className="
-                  inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl
-                  bg-[#222825] border border-[#38443C] text-xs font-medium text-[#A8B3AA]
-                  hover:text-[#F5F5F0] hover:border-[#82B895]/50 transition-colors cursor-pointer
-                  focus:outline-none focus:ring-2 focus:ring-[#82B895]
-                "
-              >
-                <Filter className="w-3.5 h-3.5 text-[#E5B86A]" />
-                <span className="hidden sm:inline">
-                  {sortOrder === 'fifo' ? 'FIFO (Oldest)' : 'Newest First'}
-                </span>
-              </button>
-
-              {/* View Switch: Grid vs Columns */}
-              <div className="flex items-center bg-[#222825] border border-[#38443C] rounded-xl p-0.5">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center rounded-md border border-[#E6E8E1] bg-white p-0.5">
                 <button
                   type="button"
                   onClick={() => setViewMode('grid')}
-                  aria-label="Switch to Grid View"
-                  className={`
-                    p-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer
-                    ${viewMode === 'grid'
-                      ? 'bg-[#24543A] text-[#F5F0E6] shadow-sm'
-                      : 'text-[#A8B3AA] hover:text-[#F5F5F0]'}
-                  `}
+                  className={`p-1.5 rounded-sm ${
+                    viewMode === 'grid'
+                      ? 'bg-[#526B50] text-white'
+                      : 'text-[#74796F] hover:text-[#20251F]'
+                  }`}
+                  title="Grid view"
                 >
                   <LayoutGrid className="w-4 h-4" />
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewMode('columns')}
-                  aria-label="Switch to Columns (Kanban) View"
-                  className={`
-                    p-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer
-                    ${viewMode === 'columns'
-                      ? 'bg-[#24543A] text-[#F5F0E6] shadow-sm'
-                      : 'text-[#A8B3AA] hover:text-[#F5F5F0]'}
-                  `}
+                  className={`p-1.5 rounded-sm ${
+                    viewMode === 'columns'
+                      ? 'bg-[#526B50] text-white'
+                      : 'text-[#74796F] hover:text-[#20251F]'
+                  }`}
+                  title="Pipeline column view"
                 >
                   <Columns className="w-4 h-4" />
                 </button>
               </div>
+
+              <select
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value)}
+                className="px-2.5 py-1.5 rounded-md bg-white border border-[#E6E8E1] text-xs font-semibold text-[#20251F] focus:outline-none focus:border-[#526B50]"
+              >
+                <option value="lifo">Newest First</option>
+                <option value="fifo">Oldest First (FIFO)</option>
+              </select>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────────────────────
-          D. MAIN ORDER DISPLAY AREA
-      ───────────────────────────────────────────────────────────── */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
-
-        {/* ── D1. Loading skeleton ─────────────────────────────────── */}
         {isLoading && (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <Loader2 className="w-10 h-10 text-[#82B895] animate-spin mb-4" />
-            <p className="text-sm text-[#A8B3AA] font-medium">Loading kitchen orders…</p>
+          <div className="flex flex-col items-center justify-center py-24">
+            <Loader2 className="w-8 h-8 text-[#526B50] animate-spin mb-3" />
+            <p className="text-xs text-[#74796F]">Loading active kitchen tickets…</p>
           </div>
         )}
 
-        {/* ── D2. Fetch error state ────────────────────────────────── */}
         {!isLoading && fetchError && (
-          <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-rose-950/20 border border-rose-800/40 my-6">
-            <AlertCircle className="w-10 h-10 text-rose-400 mb-4" />
-            <h3 className="text-base font-bold text-[#F5F5F0] mb-2">
-              Failed to load orders
-            </h3>
-            <p className="text-xs text-rose-300 max-w-md mb-6 leading-relaxed">
-              {fetchError}
-            </p>
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-xl bg-white border border-[#E6E8E1] max-w-md mx-auto shadow-xs">
+            <AlertCircle className="w-8 h-8 text-rose-500 mb-2" />
+            <h3 className="text-sm font-bold text-[#20251F] mb-1">Could not load tickets</h3>
+            <p className="text-xs text-[#74796F] mb-4">{fetchError}</p>
             <button
               type="button"
               onClick={loadOrders}
-              className="
-                inline-flex items-center gap-2 px-4 py-2 rounded-xl
-                bg-rose-900/50 hover:bg-rose-900 text-rose-100 text-xs font-semibold
-                border border-rose-700/60 transition-colors cursor-pointer
-              "
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold bg-[#526B50] text-white hover:bg-[#40563F]"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>Retry</span>
+              Try Again
             </button>
           </div>
         )}
 
-        {/* ── D3. Orders display (grid + column views) ──────────────── */}
         {!isLoading && !fetchError && (
           <>
-            {/* Active Filter Pill Bar */}
-            {(selectedStatusFilter !== 'All' || searchQuery) && (
-              <div className="flex items-center justify-between flex-wrap gap-2 mb-4 pb-2 border-b border-[#38443C]">
-                <div className="flex items-center gap-2 text-xs text-[#A8B3AA]">
-                  <span>Active filters:</span>
-                  <span className="px-2.5 py-0.5 rounded-md bg-[#222825] border border-[#38443C] text-[#F5F5F0] font-medium">
-                    Status: {selectedStatusFilter}
-                  </span>
-                  {searchQuery && (
-                    <span className="px-2.5 py-0.5 rounded-md bg-[#222825] border border-[#38443C] text-[#E5B86A] font-medium">
-                      "{searchQuery}"
-                    </span>
-                  )}
-                  <span className="text-[#82B895]">({filteredOrders.length} orders found)</span>
+            {viewMode === 'grid' ? (
+              filteredOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-xl bg-white border border-[#E6E8E1] border-dashed">
+                  <ChefHat className="w-8 h-8 text-[#74796F] opacity-40 mb-2" />
+                  <h3 className="text-sm font-bold text-[#20251F] mb-1">No Orders in this view</h3>
+                  <p className="text-xs text-[#74796F]">
+                    {searchQuery ? 'Try clearing your search query.' : 'New orders will appear here automatically.'}
+                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => { setSelectedStatusFilter('All'); setSearchQuery(''); }}
-                  className="text-xs text-[#E5B86A] hover:underline cursor-pointer"
-                >
-                  Clear filters
-                </button>
-              </div>
-            )}
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                  {filteredOrders.map((order) => (
+                    <OrderCard
+                      key={order.id}
+                      order={order}
+                      onStatusChange={handleStatusChange}
+                      isUpdating={Boolean(updatingOrders[order.id])}
+                    />
+                  ))}
+                </div>
+              )
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+                {['Pending', 'Preparing', 'Ready', 'Served'].map((colStatus) => {
+                  const colOrders = columnsData[colStatus] || [];
+                  const colHeaderColors = {
+                    Pending: 'bg-amber-50 text-amber-800 border-amber-200',
+                    Preparing: 'bg-blue-50 text-blue-800 border-blue-200',
+                    Ready: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                    Served: 'bg-[#EFF1EA] text-[#74796F] border-[#E6E8E1]',
+                  }[colStatus];
 
-            {/* GRID VIEW */}
-            {viewMode === 'grid' && (
-              <>
-                {filteredOrders.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                    {filteredOrders.map((order) => (
-                      <OrderCard
-                        key={order.id}
-                        order={order}
-                        onStatusChange={handleStatusChange}
-                        isUpdating={!!updatingOrders[order.id]}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  /* Empty state */
-                  <div className="flex flex-col items-center justify-center py-20 px-4 text-center rounded-2xl bg-[#222825] border border-[#38443C] my-6">
-                    <div className="w-14 h-14 rounded-2xl bg-[#171A19] border border-[#38443C] flex items-center justify-center mb-4">
-                      <Utensils className="w-7 h-7 text-[#E5B86A] opacity-60" />
-                    </div>
-                    <h3 className="text-lg font-bold text-[#F5F5F0] mb-1">
-                      {searchQuery ? 'No matching orders' : 'No orders found'}
-                    </h3>
-                    <p className="text-xs text-[#A8B3AA] max-w-sm mb-5 leading-relaxed">
-                      {searchQuery
-                        ? `No orders match "${searchQuery}"${selectedStatusFilter !== 'All' ? ` in "${selectedStatusFilter}" status` : ''}.`
-                        : selectedStatusFilter !== 'All'
-                        ? `No orders currently in "${selectedStatusFilter}" status.`
-                        : 'The kitchen queue is clear! No orders have been placed yet.'}
-                    </p>
-                    {(searchQuery || selectedStatusFilter !== 'All') && (
-                      <button
-                        type="button"
-                        onClick={() => { setSelectedStatusFilter('All'); setSearchQuery(''); }}
-                        className="
-                          inline-flex items-center gap-2 px-4 py-2 rounded-xl
-                          bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] text-xs font-semibold
-                          border border-[#326B4B] transition-colors cursor-pointer
-                        "
-                      >
-                        <X className="w-3.5 h-3.5" />
-                        <span>Clear filters</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* COLUMNS / KANBAN VIEW */}
-            {viewMode === 'columns' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
-
-                {/* Column: Pending */}
-                <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
-                    <div className="flex items-center gap-2">
-                      <Flame className="w-4 h-4 text-[#E5B86A]" />
-                      <h3 className="text-sm font-bold text-[#F5F5F0]">Pending</h3>
-                    </div>
-                    <span
-                      style={{ backgroundColor: STATUS_BADGE_STYLES.Pending.bg, color: STATUS_BADGE_STYLES.Pending.text }}
-                      className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
+                  return (
+                    <div
+                      key={colStatus}
+                      className="bg-white border border-[#E6E8E1] rounded-xl p-3 space-y-3"
                     >
-                      {columnsData.Pending.length}
-                    </span>
-                  </div>
-                  <div className="space-y-3.5">
-                    {columnsData.Pending.map((order) => (
-                      <OrderCard
-                        key={order.id}
-                        order={order}
-                        onStatusChange={handleStatusChange}
-                        isUpdating={!!updatingOrders[order.id]}
-                      />
-                    ))}
-                    {columnsData.Pending.length === 0 && (
-                      <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">No pending orders</p>
-                    )}
-                  </div>
-                </div>
+                      <div className={`px-3 py-1.5 rounded-lg border flex items-center justify-between font-bold text-xs ${colHeaderColors}`}>
+                        <span>{colStatus}</span>
+                        <span className="w-5 h-5 rounded-full bg-white text-[#20251F] flex items-center justify-center text-[11px] font-bold shadow-2xs">
+                          {colOrders.length}
+                        </span>
+                      </div>
 
-                {/* Column: Preparing */}
-                <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
-                    <div className="flex items-center gap-2">
-                      <Bell className="w-4 h-4 text-[#60A5FA]" />
-                      <h3 className="text-sm font-bold text-[#F5F5F0]">Preparing</h3>
+                      <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
+                        {colOrders.map((order) => (
+                          <OrderCard
+                            key={order.id}
+                            order={order}
+                            onStatusChange={handleStatusChange}
+                            isUpdating={Boolean(updatingOrders[order.id])}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <span
-                      style={{ backgroundColor: STATUS_BADGE_STYLES.Preparing.bg, color: STATUS_BADGE_STYLES.Preparing.text }}
-                      className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
-                    >
-                      {columnsData.Preparing.length}
-                    </span>
-                  </div>
-                  <div className="space-y-3.5">
-                    {columnsData.Preparing.map((order) => (
-                      <OrderCard
-                        key={order.id}
-                        order={order}
-                        onStatusChange={handleStatusChange}
-                        isUpdating={!!updatingOrders[order.id]}
-                      />
-                    ))}
-                    {columnsData.Preparing.length === 0 && (
-                      <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">No orders being prepped</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Column: Ready */}
-                <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-[#82B895]" />
-                      <h3 className="text-sm font-bold text-[#F5F5F0]">Ready for Pickup</h3>
-                    </div>
-                    <span
-                      style={{ backgroundColor: STATUS_BADGE_STYLES.Ready.bg, color: STATUS_BADGE_STYLES.Ready.text }}
-                      className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
-                    >
-                      {columnsData.Ready.length}
-                    </span>
-                  </div>
-                  <div className="space-y-3.5">
-                    {columnsData.Ready.map((order) => (
-                      <OrderCard
-                        key={order.id}
-                        order={order}
-                        onStatusChange={handleStatusChange}
-                        isUpdating={!!updatingOrders[order.id]}
-                      />
-                    ))}
-                    {columnsData.Ready.length === 0 && (
-                      <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">No orders ready for pickup</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Column: Served */}
-                <div className="bg-[#1C211F] rounded-2xl border border-[#38443C] p-3.5 flex flex-col gap-3 min-h-[450px]">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#38443C]">
-                    <div className="flex items-center gap-2">
-                      <CheckCheck className="w-4 h-4 text-[#A8B3AA]" />
-                      <h3 className="text-sm font-bold text-[#F5F5F0]">Served</h3>
-                    </div>
-                    <span
-                      style={{ backgroundColor: STATUS_BADGE_STYLES.Served.bg, color: STATUS_BADGE_STYLES.Served.text }}
-                      className="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
-                    >
-                      {columnsData.Served.length}
-                    </span>
-                  </div>
-                  <div className="space-y-3.5">
-                    {columnsData.Served.map((order) => (
-                      <OrderCard
-                        key={order.id}
-                        order={order}
-                        onStatusChange={handleStatusChange}
-                        isUpdating={!!updatingOrders[order.id]}
-                      />
-                    ))}
-                    {columnsData.Served.length === 0 && (
-                      <p className="text-center text-xs text-[#A8B3AA] py-10 opacity-70">No completed orders</p>
-                    )}
-                  </div>
-                </div>
-
+                  );
+                })}
               </div>
             )}
           </>
         )}
       </main>
 
-      {/* ─────────────────────────────────────────────────────────────
-          E. FOOTER
-      ───────────────────────────────────────────────────────────── */}
-      <footer className="mt-auto border-t border-[#38443C] bg-[#222825] py-6 text-xs text-[#A8B3AA]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-[#F5F5F0]">ServeSync</span>
-            <span>•</span>
-            <span>Kitchen Display System (KDS)</span>
-            <span>•</span>
-            <span className="text-[#E5B86A]">Member 4 Module</span>
-          </div>
-          <p className="text-center sm:text-right">
-            Status Flow: Pending → Preparing → Ready → Served
-          </p>
+      <footer className="mt-auto border-t border-[#E6E8E1] bg-white py-4 text-xs text-[#74796F]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>Dinning Room · Kitchen Display Station</span>
+          <span>Pending → Preparing → Ready → Served</span>
         </div>
       </footer>
 
-      {/* ─────────────────────────────────────────────────────────────
-          F. FLOATING TOAST NOTIFICATION
-      ───────────────────────────────────────────────────────────── */}
       {toast && (
         <div
           role="status"
-          aria-live="polite"
           className={`
-            fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl
-            border shadow-2xl transition-all duration-300
+            fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-lg
+            border shadow-md transition-all duration-200 text-xs font-semibold
             ${toast.type === 'error'
-              ? 'bg-rose-900/90 text-rose-100 border-rose-700'
+              ? 'bg-rose-50 text-rose-800 border-rose-200'
               : toast.type === 'success'
-              ? 'bg-[#24543A] text-[#F5F0E6] border-[#326B4B]'
-              : 'bg-[#222825] text-[#F5F5F0] border-[#38443C]'}
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-white text-[#20251F] border-[#E6E8E1]'}
           `}
         >
           {toast.type === 'error' ? (
-            <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
           ) : (
-            <Check className="w-4 h-4 text-[#82B895] shrink-0" />
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
           )}
-          <p className="text-xs font-semibold leading-tight max-w-xs">{toast.message}</p>
+          <span>{toast.message}</span>
         </div>
       )}
     </div>

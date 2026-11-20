@@ -1,24 +1,6 @@
 import { ChefHat, Bell, CheckCheck, Check, Loader2 } from 'lucide-react';
 import { STATUS_TRANSITIONS } from '../../mocks/mockOrders';
 
-/**
- * StatusButton Component
- *
- * Provides a working button to progress an order through:
- * Pending → Preparing → Ready → Served
- *
- * Enforces valid linear status transitions and provides accessible labels.
- * Displays a loading spinner while a status update is in progress.
- *
- * @param {Object}   props
- * @param {string}   props.status          Current order status ('Pending' | 'Preparing' | 'Ready' | 'Served')
- * @param {Function} props.onStatusChange  Callback receiving the valid next status string
- * @param {string|number} [props.orderId]      Order ID for accessible aria-label
- * @param {string|number} [props.tableNumber]  Table number for accessible context
- * @param {boolean}  [props.disabled]      Whether button is externally disabled
- * @param {boolean}  [props.isLoading]     Whether a status update is currently in progress
- * @param {string}   [props.className]     Additional styling classes
- */
 export default function StatusButton({
   status,
   onStatusChange,
@@ -28,39 +10,38 @@ export default function StatusButton({
   isLoading = false,
   className = '',
 }) {
-  // Configuration mapping for each status action
   const statusConfig = {
     Pending: {
-      next: STATUS_TRANSITIONS.Pending, // 'Preparing'
+      next: STATUS_TRANSITIONS.Pending,
       label: 'Start Preparing',
       ariaLabel: `Start preparing Order #${orderId}${tableNumber ? ` for Table ${tableNumber}` : ''}`,
       icon: ChefHat,
       classes:
-        'bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] border border-[#326B4B] shadow-sm hover:shadow active:scale-[0.98]',
+        'bg-[#526B50] hover:bg-[#40563F] text-white shadow-xs',
     },
     Preparing: {
-      next: STATUS_TRANSITIONS.Preparing, // 'Ready'
+      next: STATUS_TRANSITIONS.Preparing,
       label: 'Mark as Ready',
       ariaLabel: `Mark Order #${orderId}${tableNumber ? ` for Table ${tableNumber}` : ''} as ready for pickup`,
       icon: Bell,
       classes:
-        'bg-[#234D83] hover:bg-[#2C5E9E] text-[#F5F5F0] border border-[#3C6EAF] shadow-sm hover:shadow active:scale-[0.98]',
+        'bg-[#234D83] hover:bg-[#1D3E6A] text-white shadow-xs',
     },
     Ready: {
-      next: STATUS_TRANSITIONS.Ready, // 'Served'
+      next: STATUS_TRANSITIONS.Ready,
       label: 'Mark as Served',
       ariaLabel: `Mark Order #${orderId}${tableNumber ? ` for Table ${tableNumber}` : ''} as served to customer`,
       icon: CheckCheck,
       classes:
-        'bg-[#24543A] hover:bg-[#326B4B] text-[#F5F0E6] border border-[#326B4B] shadow-sm hover:shadow active:scale-[0.98]',
+        'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs',
     },
     Served: {
-      next: STATUS_TRANSITIONS.Served, // null
+      next: STATUS_TRANSITIONS.Served,
       label: 'Completed & Served',
       ariaLabel: `Order #${orderId} is completed and served`,
       icon: Check,
       classes:
-        'bg-[#171A19] text-[#A8B3AA] border border-[#38443C] cursor-not-allowed opacity-80',
+        'bg-[#EFF1EA] text-[#74796F] border border-[#E6E8E1] cursor-not-allowed',
     },
   };
 
@@ -69,7 +50,7 @@ export default function StatusButton({
     label: status,
     ariaLabel: `Status: ${status}`,
     icon: Check,
-    classes: 'bg-[#171A19] text-[#A8B3AA] border border-[#38443C]',
+    classes: 'bg-[#EFF1EA] text-[#74796F] border border-[#E6E8E1]',
   };
 
   const IconComponent = currentConfig.icon;
@@ -78,7 +59,6 @@ export default function StatusButton({
 
   const handleClick = (e) => {
     e.stopPropagation();
-    // Strictly prevent invalid transitions and double-submissions
     if (!isDisabled && currentConfig.next && typeof onStatusChange === 'function') {
       onStatusChange(currentConfig.next);
     }
@@ -93,19 +73,19 @@ export default function StatusButton({
       aria-busy={isLoading}
       data-testid={`status-btn-${orderId || 'order'}`}
       className={`
-        inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
-        text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer
-        focus:outline-none focus:ring-2 focus:ring-[#82B895] focus:ring-offset-2 focus:ring-offset-[#222825]
-        disabled:cursor-not-allowed disabled:active:scale-100
+        inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-md
+        text-xs font-semibold transition-all duration-150 cursor-pointer
+        focus:outline-none focus:ring-2 focus:ring-[#526B50]/30
+        disabled:cursor-not-allowed
         ${isLoading ? 'opacity-70' : ''}
         ${currentConfig.classes}
         ${className}
       `}
     >
       {isLoading ? (
-        <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+        <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
       ) : (
-        <IconComponent className="w-4 h-4 shrink-0" />
+        <IconComponent className="w-3.5 h-3.5 shrink-0" />
       )}
       <span>{isLoading ? 'Updating…' : currentConfig.label}</span>
       {!isLoading && currentConfig.next && (

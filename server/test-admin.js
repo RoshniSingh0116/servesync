@@ -1,23 +1,7 @@
 'use strict';
-/**
- * test-admin.js — ServeSync Member 3 — Commit 6 Admin Dashboard Test Suite
- *
- * Self-contained test runner for testing and verifying:
- *  1. Admin authentication (valid login, invalid email/username, invalid password,
- *     timing-safe comparison, password non-exposure, token generation, auto-seed)
- *  2. Food management (view, add, edit, delete, validation rules, protected fields, 400/404 handling)
- *  3. Order management (view orders, field display, total/totalAmount normalization, empty list)
- *  4. Dashboard statistics (all counts: total foods, available/unavailable, total orders,
- *     pending, preparing, ready, completed/served)
- *  5. Error handling (missing fields, invalid IDs, bad categories, empty collections)
- *  6. Integration with Member 1 (Food API), Member 2 (Order API), and Member 4 (Kitchen status flow)
- *
- * Run with:  node test-admin.js
- */
 
 const crypto = require('crypto');
 
-/* ─── Minimal test harness ───────────────────────────────────────────────── */
 let passed = 0;
 let failed = 0;
 const results = [];
@@ -39,7 +23,6 @@ function section(title) {
   console.log('─'.repeat(64));
 }
 
-/* ─── Mock req / res factories ───────────────────────────────────────────── */
 function mockReq({ params = {}, body = {}, query = {} } = {}) {
   return { params, body, query };
 }
@@ -53,7 +36,6 @@ function mockRes() {
   };
 }
 
-/* ─── In-Memory Database Stubs ───────────────────────────────────────────── */
 function isValidObjectId(id) {
   return typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 }
@@ -80,7 +62,6 @@ const VALID_CATEGORIES = [
 
 const PROTECTED_FIELDS = ['_id', '__v', 'createdAt', 'updatedAt'];
 
-// Seed Data
 let dbAdmins = [
   {
     _id: '671000000000000000000001',
@@ -185,9 +166,7 @@ let dbOrders = [
   },
 ];
 
-/* ─── Controller Function Stubs (reproducing controllers directly) ────────── */
 
-// Admin find helper
 async function stubFindAdmin(usernameOrEmail) {
   const term = String(usernameOrEmail).trim();
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -198,7 +177,6 @@ async function stubFindAdmin(usernameOrEmail) {
   ) || null;
 }
 
-// 1. adminLogin
 async function stubAdminLogin(req, res) {
   try {
     const { username, password } = req.body;
@@ -211,7 +189,6 @@ async function stubAdminLogin(req, res) {
 
     let admin = await stubFindAdmin(String(username).trim());
 
-    // Auto-seed if empty
     if (!admin && dbAdmins.length === 0) {
       const defaultAdmin = {
         _id: '671000000000000000000001',
@@ -238,7 +215,6 @@ async function stubAdminLogin(req, res) {
     }
 
     const token = crypto.randomBytes(32).toString('hex');
-    // eslint-disable-next-line no-unused-vars
     const { password: _pw, ...safeAdmin } = admin;
 
     return res.status(200).json({
@@ -251,7 +227,6 @@ async function stubAdminLogin(req, res) {
   }
 }
 
-// 2. adminGetFoods
 async function stubAdminGetFoods(req, res) {
   return res.status(200).json({
     count: dbFoods.length,
@@ -259,7 +234,6 @@ async function stubAdminGetFoods(req, res) {
   });
 }
 
-// 3. adminGetOrders
 async function stubAdminGetOrders(req, res) {
   const sorted = [...dbOrders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   const mapped = sorted.map((o) => ({
@@ -273,7 +247,6 @@ async function stubAdminGetOrders(req, res) {
   });
 }
 
-// 4. adminGetDashboard
 async function stubAdminGetDashboard(req, res) {
   const totalFoods = dbFoods.length;
   const availableFoods = dbFoods.filter((f) => f.isAvailable !== false).length;
@@ -300,7 +273,6 @@ async function stubAdminGetDashboard(req, res) {
   });
 }
 
-// 5. foodController stubs
 async function stubAddFood(req, res) {
   const { name, description, price, category, image, isVeg, isPopular, isAvailable } = req.body || {};
   if (!name || String(name).trim() === '') return res.status(400).json({ error: 'name is required.' });
@@ -366,13 +338,9 @@ async function stubDeleteFood(req, res) {
   return res.status(200).json({ message: 'Food item deleted successfully.', deletedId: id });
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   TEST SUITE EXECUTION
-───────────────────────────────────────────────────────────────────────── */
 async function runTests() {
   section('TASK 1: ADMIN AUTHENTICATION TESTS');
 
-  // Test 1.1: Valid login with username
   {
     const req = mockReq({ body: { username: 'admin', password: 'admin123' } });
     const res = mockRes();
@@ -383,7 +351,6 @@ async function runTests() {
     assert('Password is NEVER returned in response', res._body.admin.password === undefined);
   }
 
-  // Test 1.2: Valid login with email
   {
     const req = mockReq({ body: { username: 'admin@servesync.com', password: 'admin123' } });
     const res = mockRes();
@@ -392,7 +359,6 @@ async function runTests() {
     assert('Login with email returns admin user', res._body.admin && res._body.admin.email === 'admin@servesync.com');
   }
 
-  // Test 1.3: Valid login case-insensitive
   {
     const req = mockReq({ body: { username: 'ADMIN', password: 'admin123' } });
     const res = mockRes();
@@ -400,7 +366,6 @@ async function runTests() {
     assert('Case-insensitive username login returns 200', res._status === 200);
   }
 
-  // Test 1.4: Invalid password
   {
     const req = mockReq({ body: { username: 'admin', password: 'wrongpassword' } });
     const res = mockRes();
@@ -409,7 +374,6 @@ async function runTests() {
     assert('Invalid password returns generic error message', res._body.error === 'Invalid username or password.');
   }
 
-  // Test 1.5: Non-existent admin username
   {
     const req = mockReq({ body: { username: 'nonexistent_user', password: 'admin123' } });
     const res = mockRes();
@@ -418,7 +382,6 @@ async function runTests() {
     assert('Returns same generic error as invalid password', res._body.error === 'Invalid username or password.');
   }
 
-  // Test 1.6: Missing username
   {
     const req = mockReq({ body: { username: '', password: 'admin123' } });
     const res = mockRes();
@@ -427,7 +390,6 @@ async function runTests() {
     assert('Returns descriptive error for missing username', res._body.error.includes('username is required'));
   }
 
-  // Test 1.7: Missing password
   {
     const req = mockReq({ body: { username: 'admin', password: '' } });
     const res = mockRes();
@@ -436,21 +398,19 @@ async function runTests() {
     assert('Returns descriptive error for missing password', res._body.error.includes('password is required'));
   }
 
-  // Test 1.8: Auto-seed on empty admins collection
   {
     const savedAdmins = [...dbAdmins];
-    dbAdmins = []; // empty collection
+    dbAdmins = [];
     const req = mockReq({ body: { username: 'admin', password: 'admin123' } });
     const res = mockRes();
     await stubAdminLogin(req, res);
     assert('Auto-seed initializes default admin when collection is empty', res._status === 200);
     assert('Database now contains seeded admin', dbAdmins.length === 1 && dbAdmins[0].username === 'admin');
-    dbAdmins = savedAdmins; // restore
+    dbAdmins = savedAdmins;
   }
 
   section('TASK 2: FOOD MANAGEMENT TESTS');
 
-  // Test 2.1: Admin view foods
   {
     const req = mockReq();
     const res = mockRes();
@@ -460,7 +420,6 @@ async function runTests() {
     assert('adminGetFoods returns array of food items', Array.isArray(res._body.foods));
   }
 
-  // Test 2.2: Add new food item
   let addedFoodId = null;
   {
     const req = mockReq({
@@ -482,7 +441,6 @@ async function runTests() {
     addedFoodId = res._body.food._id;
   }
 
-  // Test 2.3: Add food validation - missing required fields
   {
     const req = mockReq({ body: { name: '', price: 200, category: 'Main Course' } });
     const res = mockRes();
@@ -490,7 +448,6 @@ async function runTests() {
     assert('Missing name is rejected with 400', res._status === 400);
   }
 
-  // Test 2.4: Add food validation - invalid category
   {
     const req = mockReq({
       body: { name: 'Pasta', description: 'Italian pasta', price: 200, category: 'ItalianFood' },
@@ -500,7 +457,6 @@ async function runTests() {
     assert('Invalid category is rejected with 400 and valid categories list', res._status === 400 && res._body.validCategories);
   }
 
-  // Test 2.5: Add food validation - non-positive price
   {
     const req = mockReq({
       body: { name: 'Chai', description: 'Masala tea', price: -50, category: 'Drinks' },
@@ -510,7 +466,6 @@ async function runTests() {
     assert('Negative price is rejected with 400', res._status === 400);
   }
 
-  // Test 2.6: Edit food item
   {
     const req = mockReq({
       params: { id: addedFoodId },
@@ -524,7 +479,6 @@ async function runTests() {
     assert('Updated isAvailable reflects in database', updated.isAvailable === false);
   }
 
-  // Test 2.7: Edit food item - protected fields rejected
   {
     const req = mockReq({
       params: { id: addedFoodId },
@@ -535,7 +489,6 @@ async function runTests() {
     assert('Attempt to overwrite _id is rejected with 400', res._status === 400);
   }
 
-  // Test 2.8: Edit food item - invalid ObjectId format
   {
     const req = mockReq({
       params: { id: 'invalid-id-123' },
@@ -546,7 +499,6 @@ async function runTests() {
     assert('Invalid ObjectId format in PUT returns 400', res._status === 400);
   }
 
-  // Test 2.9: Edit food item - not found
   {
     const req = mockReq({
       params: { id: '671000000000000000000999' },
@@ -557,7 +509,6 @@ async function runTests() {
     assert('Non-existent food ID in PUT returns 404', res._status === 404);
   }
 
-  // Test 2.10: Delete food item
   {
     const req = mockReq({ params: { id: addedFoodId } });
     const res = mockRes();
@@ -566,7 +517,6 @@ async function runTests() {
     assert('Deleted food is removed from database', !dbFoods.some((f) => f._id === addedFoodId));
   }
 
-  // Test 2.11: Delete food item - invalid ObjectId format
   {
     const req = mockReq({ params: { id: 'not-valid' } });
     const res = mockRes();
@@ -574,7 +524,6 @@ async function runTests() {
     assert('Invalid ObjectId format in DELETE returns 400', res._status === 400);
   }
 
-  // Test 2.12: Delete food item - not found
   {
     const req = mockReq({ params: { id: '671000000000000000000999' } });
     const res = mockRes();
@@ -584,7 +533,6 @@ async function runTests() {
 
   section('TASK 3: ORDER MANAGEMENT TESTS');
 
-  // Test 3.1: Admin view orders
   {
     const req = mockReq();
     const res = mockRes();
@@ -598,7 +546,6 @@ async function runTests() {
     assert('Orders contain creation timestamp', res._body.orders.every((o) => o.createdAt));
   }
 
-  // Test 3.2: Empty orders collection
   {
     const savedOrders = [...dbOrders];
     dbOrders = [];
@@ -606,12 +553,11 @@ async function runTests() {
     const res = mockRes();
     await stubAdminGetOrders(req, res);
     assert('Empty orders collection returns 200 with count 0', res._status === 200 && res._body.count === 0 && res._body.orders.length === 0);
-    dbOrders = savedOrders; // restore
+    dbOrders = savedOrders;
   }
 
   section('TASK 4: DASHBOARD STATISTICS TESTS');
 
-  // Test 4.1: Dashboard statistics match actual counts
   {
     const req = mockReq();
     const res = mockRes();
@@ -629,9 +575,7 @@ async function runTests() {
 
   section('TASK 5 & 6: INTEGRATION & LIFECYCLE PROGRESSION TESTS');
 
-  // Test 5.1: Kitchen status update reflection in dashboard
   {
-    // Transition Order 101 from Pending -> Preparing
     const order101 = dbOrders.find((o) => o._id === '671000000000000000000101');
     order101.status = 'Preparing';
 
@@ -641,22 +585,18 @@ async function runTests() {
     assert('Pending count decremented to 0 after kitchen update', res._body.pendingOrders === 0);
     assert('Preparing count incremented to 2 after kitchen update', res._body.preparingOrders === 2);
 
-    // Transition Order 101 Preparing -> Ready
     order101.status = 'Ready';
     const res2 = mockRes();
     await stubAdminGetDashboard(req, res2);
     assert('Ready count incremented to 2', res2._body.readyOrders === 2);
 
-    // Transition Order 101 Ready -> Served (Completed)
     order101.status = 'Served';
     const res3 = mockRes();
     await stubAdminGetDashboard(req, res3);
     assert('Completed count incremented to 2', res3._body.completedOrders === 2);
   }
 
-  // Test 5.2: Member 2 Checkout order placement integration
   {
-    // New customer order placed via checkout
     const newOrder = {
       _id: '671000000000000000000105',
       tableNumber: 4,
@@ -681,9 +621,7 @@ async function runTests() {
     assert('New order immediately appears in admin orders list', ordersRes._body.orders.some((o) => o._id === '671000000000000000000105'));
   }
 
-  // Test 5.3: Member 1 Customer Menu reflection
   {
-    // Add food item via Admin
     const addReq = mockReq({
       body: {
         name: 'Gulab Jamun with Rabri',
@@ -699,14 +637,10 @@ async function runTests() {
     await stubAddFood(addReq, addRes);
     assert('Admin adds new item to catalog', addRes._status === 201);
 
-    // Customer Menu fetches GET /api/foods
     const menuFoods = dbFoods.filter((f) => f.isAvailable !== false);
     assert('Customer menu immediately sees new available item', menuFoods.some((f) => f.name === 'Gulab Jamun with Rabri'));
   }
 
-  /* ───────────────────────────────────────────────────────────────────────
-     SUMMARY
-  ─────────────────────────────────────────────────────────────────────── */
   console.log(`\n${'═'.repeat(64)}`);
   console.log(`  MEMBER 3 COMMIT 6 TEST RUN SUMMARY`);
   console.log(`  Passed: ${passed}`);
