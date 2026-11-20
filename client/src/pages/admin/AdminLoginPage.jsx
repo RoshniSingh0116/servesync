@@ -10,7 +10,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, Utensils, LogIn, AlertCircle, ShieldCheck, Info } from 'lucide-react';
+import { Eye, EyeOff, Utensils, LogIn, AlertCircle, Info } from 'lucide-react';
 import { adminLogin, setAdminSession, isAdminAuthenticated } from '../../services/adminApi';
 
 export default function AdminLoginPage() {
@@ -139,17 +139,6 @@ export default function AdminLoginPage() {
               </p>
             </div>
           )}
-
-          {/* Demo Credentials Notice */}
-          <div className="flex items-start gap-2.5 mb-5 p-3 rounded-xl bg-[#24543A]/20 border border-[#326B4B]/60">
-            <ShieldCheck className="w-4 h-4 text-[#82B895] mt-0.5 shrink-0" />
-            <p className="text-xs text-[#A8B3AA] leading-relaxed">
-              <span className="font-semibold text-[#82B895]">Default Credentials — </span>
-              Username: <span className="font-mono text-[#F5F5F0]">admin</span> (or{' '}
-              <span className="font-mono text-[#F5F5F0]">admin@servesync.com</span>) · Password:{' '}
-              <span className="font-mono text-[#F5F5F0]">admin123</span>
-            </p>
-          </div>
 
           <form onSubmit={handleSubmit} noValidate>
             {/* Global Login Error */}
