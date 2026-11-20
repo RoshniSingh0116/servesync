@@ -41,9 +41,11 @@ import {
   Search,
   SlidersHorizontal,
   ExternalLink,
+  QrCode,
 } from 'lucide-react';
 import FoodTable from '../../components/admin/FoodTable';
 import FoodForm from '../../components/admin/FoodForm';
+import TableQRSection from '../../components/admin/TableQRSection';
 import {
   getAdminDashboard,
   getAdminFoods,
@@ -60,6 +62,7 @@ const NAV_LINKS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'menu', label: 'Menu Management', icon: UtensilsCrossed },
   { id: 'orders', label: 'Orders Overview', icon: ClipboardList },
+  { id: 'tables', label: 'Table QR Codes', icon: QrCode },
 ];
 
 /* ─── Sidebar Component ─────────────────────────────────────────────── */
@@ -558,6 +561,11 @@ export default function AdminDashboardPage() {
               onRetryOrders={fetchOrdersList}
               onGoToKitchen={() => navigate('/kitchen')}
             />
+          )}
+
+          {/* ── Table QR Codes section ── */}
+          {activeSection === 'tables' && (
+            <TableQRSection />
           )}
         </main>
 

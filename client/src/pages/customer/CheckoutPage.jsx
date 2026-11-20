@@ -1,28 +1,3 @@
-/**
- * CheckoutPage — ServeSync Member 2
- * Displays the order summary for the current cart, reads the table number from
- * the URL (?table=X), and places a real order via POST /api/orders.
- *
- * Integration notes (Commit 6):
- *  - Fetches the food catalog from GET /api/foods to resolve cart item names
- *    to real MongoDB ObjectIds (foodId).  Member 1's useFoods hook already sets
- *    item.id === item._id (the MongoDB ObjectId string), so the id-based fallback
- *    is the primary path for items added from the live menu.  The name-based
- *    lookup remains as a secondary path for resilience.
- *  - Prices are NEVER sent to the backend.  Only foodId + quantity are submitted
- *    so the server always prices from MongoDB (server-side price authority).
- *  - After a successful POST the returned order object is passed to the
- *    OrderConfirmationPage via React Router location.state so it survives the
- *    navigation without depending on the in-memory OrderContext.
- *  - The placed order is also mirrored into OrderContext so the Kitchen Dashboard
- *    (Member 4) can display it in-session without a backend polling requirement.
- *  - The cart is cleared only after the backend confirms success (201).
- *  - isPlacing is set to true the moment the button is clicked and only reset
- *    on error — navigation away naturally unmounts the spinner.
- *
- * Flow: CartPage → CheckoutPage → OrderConfirmationPage
- */
-
 import { useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -38,14 +13,12 @@ import { useCart } from '../../context/CartContext';
 import { useOrders } from '../../context/OrderContext';
 import { placeOrder, getAllFoods } from '../../api/orderApi';
 
-/* ─── Helper ─────────────────────────────────────────────── */
 function getTableFromSearch(search) {
   const params = new URLSearchParams(search);
   const t = params.get('table');
   return t && t.trim() !== '' ? t.trim() : '1';
 }
 
-/* ─── Veg dot ─────────────────────────────────────────────── */
 function VegDot({ isVeg }) {
   return (
     <span
@@ -73,20 +46,17 @@ export default function CheckoutPage() {
   const [isPlacing, setIsPlacing] = useState(false);
   const [error, setError] = useState('');
 
-  /* ── Place Order ── */
+
   const handlePlaceOrder = useCallback(async () => {
-    // Guard: prevent duplicate submissions (button is also disabled while placing)
+
     if (isPlacing) return;
 
     setError('');
-
-    // Validate: cart must not be empty
     if (cartItems.length === 0) {
       setError('Your cart is empty. Please add items before placing an order.');
       return;
     }
 
-    // Validate: table number must be a positive integer
     const parsedTable = Number(tableNumber);
     if (!Number.isInteger(parsedTable) || parsedTable < 1) {
       setError('Invalid table number. Please scan your table QR code again.');
@@ -96,12 +66,7 @@ export default function CheckoutPage() {
     setIsPlacing(true);
 
     try {
-      /* ── Step 1: Fetch the food catalog to resolve foodIds ── */
-      // Member 1's useFoods hook normalises each food document so item.id === item._id
-      // (the MongoDB ObjectId string).  Cart items added from the live menu therefore
-      // already carry a valid ObjectId as `id`, which the id-based fallback picks up.
-      // The name-based lookup is kept as the primary path so items added before the
-      // menu was wired to the backend continue to resolve correctly.
+      
       let foodsById = {};
       try {
         const { foods } = await getAllFoods();

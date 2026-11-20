@@ -1,21 +1,5 @@
 
-/**
- * kitchenApi.js — ServeSync (Member 4)
- *
- * Axios-based API client for the Kitchen Dashboard.
- *
- * Development:
- *   Vite proxies /api to http://localhost:5001
- *
- * Production:
- *   VITE_API_BASE_URL=https://servesync-y8zg.onrender.com/api
- *
- * All endpoints mirror the backend Kitchen API contract.
- */
-
 import axios from 'axios';
-
-/* ─── Axios instance ─────────────────────────────────────────────────────── */
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
@@ -25,14 +9,13 @@ const kitchenClient = axios.create({
   timeout: 15000,
 });
 
-/* ─── Status mapping helpers ─────────────────────────────────────────────── */
+
 
 export function toApiStatus(titleCaseStatus) {
   if (titleCaseStatus === 'Served') return 'completed';
   return titleCaseStatus.toLowerCase();
 }
 
-/* ─── Document normaliser ───────────────────────────────────────────────── */
 
 export function normalizeOrder(raw) {
   if (!raw) return raw;
@@ -44,7 +27,6 @@ export function normalizeOrder(raw) {
   };
 }
 
-/* ─── API functions ──────────────────────────────────────────────────────── */
 
 export async function fetchAllKitchenOrders() {
   try {
